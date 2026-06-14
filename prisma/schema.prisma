@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Employee {
+  id        String   @id @default(cuid())
+  empId     String   @unique
+  name      String
+  email     String   @unique
+  phone     String?
+  department String
+  position  String
+  salary    Float
+  joinDate  DateTime @default(now())
+  role      String   @default("employee")
+  password  String
+  photoUrl  String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  attendance  Attendance[]
+  payrolls    Payroll[]
+}
+
+model Attendance {
+  id            String   @id @default(cuid())
+  employeeId    String
+  date          String
+  checkIn       DateTime?
+  checkOut      DateTime?
+  checkInLat    Float?
+  checkInLng    Float?
+  checkOutLat   Float?
+  checkOutLng   Float?
+  checkInPhoto  String?
+  checkOutPhoto String?
+  checkInAddr   String?
+  checkOutAddr  String?
+  status        String   @default("pending")
+  workHours     Float?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, date])
+}
+
+model Payroll {
+  id          String   @id @default(cuid())
+  employeeId  String
+  month       Int
+  year        Int
+  basicSalary Float
+  workingDays Int
+  presentDays Int
+  overtime    Float    @default(0)
+  deductions  Float    @default(0)
+  bonus       Float    @default(0)
+  netSalary   Float
+  status      String   @default("pending")
+  generatedAt DateTime @default(now())
+  paidAt      DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, month, year])
+}
