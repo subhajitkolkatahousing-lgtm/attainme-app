@@ -501,12 +501,12 @@ export default function HomePage() {
   // ========== HOME SCREEN (not logged in) ==========
   if (!user) {
     return (
-      <div className={`min-h-screen flex flex-col ${darkMode ? 'bg-gray-950' : 'bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800'}`}>
+      <div className={`${darkMode ? 'bg-gray-950' : 'bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800'}`}>
         <video ref={videoRef} autoPlay playsInline muted className="hidden" />
         <canvas ref={canvasRef} className="hidden" />
 
         {/* Header */}
-        <header className="flex-shrink-0 px-4 py-3 flex items-center justify-between">
+        <header className="px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
               <BookOpen className="w-5 h-5 text-white" />
@@ -524,7 +524,7 @@ export default function HomePage() {
         </header>
 
         {/* Hero Section */}
-        <div className="flex-shrink-0 pt-8 pb-10 px-6 text-center">
+        <div className="pt-8 pb-10 px-6 text-center">
           <div className="mx-auto w-20 h-20 bg-white/20 backdrop-blur-sm rounded-3xl flex items-center justify-center mb-5 shadow-2xl">
             <Fingerprint className="w-10 h-10 text-white" />
           </div>
@@ -564,7 +564,7 @@ export default function HomePage() {
         </div>
 
         {/* Features Grid */}
-        <div className={`px-6 pb-6 ${darkMode ? '' : ''}`}>
+        <div className="px-6 pb-8">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 max-w-3xl mx-auto">
             {[
               { icon: Shield, title: 'Secure Attendance', desc: 'Face recognition & GPS tracking for accurate check-ins' },
@@ -573,7 +573,7 @@ export default function HomePage() {
             ].map((f, i) => (
               <div key={i} className={`p-4 rounded-2xl ${darkMode ? 'bg-gray-800/50' : 'bg-white/10'} backdrop-blur-sm`}>
                 <f.icon className={`w-8 h-8 mb-2 ${darkMode ? 'text-blue-400' : 'text-blue-200'}`} />
-                <h3 className={`text-sm font-bold ${darkMode ? 'text-white' : 'text-white'}`}>{f.title}</h3>
+                <h3 className="text-sm font-bold text-white">{f.title}</h3>
                 <p className={`text-xs mt-1 ${darkMode ? 'text-gray-400' : 'text-blue-100'}`}>{f.desc}</p>
               </div>
             ))}
@@ -581,7 +581,7 @@ export default function HomePage() {
         </div>
 
         {/* Login card */}
-        <div className={`flex-1 rounded-t-[2.5rem] px-5 pt-6 pb-8 overflow-auto ${darkMode ? 'bg-gray-900' : 'bg-white'}`}>
+        <div className={`rounded-t-[2.5rem] px-5 pt-6 pb-8 ${darkMode ? 'bg-gray-900' : 'bg-white'}`}>
           <h2 className={`text-lg font-bold mb-4 ${darkMode ? 'text-white' : 'text-gray-900'}`}>Sign In to Your Account</h2>
           <div className="space-y-4 max-w-md mx-auto">
             <div className="space-y-2">
