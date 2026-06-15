@@ -2,9 +2,5 @@
   "buildCommand": "npx prisma generate && next build",
   "installCommand": "npm install",
   "framework": "nextjs",
-  "regions": ["bom1"],
-  "env": {
-    "DATABASE_URL": "@database_url",
-    "DIRECT_URL": "@direct_url"
-  }
+  "regions": ["bom1"]
 }

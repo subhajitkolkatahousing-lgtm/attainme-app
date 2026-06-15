@@ -6,6 +6,11 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
+
+  // For local development with SQLite, use:
+  // provider = "sqlite"
+  // url      = env("DATABASE_URL")
+  // And remove directUrl line
 }
 
 model Employee {
