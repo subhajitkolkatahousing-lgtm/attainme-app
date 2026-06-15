@@ -24,8 +24,12 @@ model Employee {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  attendance  Attendance[]
-  payrolls    Payroll[]
+  attendance     Attendance[]
+  payrolls       Payroll[]
+  leaveApplications LeaveApplication[]
+  leaveBalances  LeaveBalance[]
+  approvedAttendance Attendance[] @relation("ApprovedBy")
+  approvedLeaves  LeaveApplication[] @relation("ApprovedLeaves")
 }
 
 model Attendance {
@@ -43,11 +47,17 @@ model Attendance {
   checkInAddr   String?
   checkOutAddr  String?
   status        String   @default("pending")
+  approvedBy    String?
+  approvedAt    DateTime?
+  rejectReason  String?
   workHours     Float?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  isRegularised Boolean  @default(false)
+  regulariseReason String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  approver   Employee? @relation("ApprovedBy", fields: [approvedBy], references: [id])
 
   @@unique([employeeId, date])
 }
@@ -73,4 +83,52 @@ model Payroll {
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   @@unique([employeeId, month, year])
+}
+
+model LeaveType {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  defaultDays Int      @default(0)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  leaveBalances     LeaveBalance[]
+  leaveApplications LeaveApplication[]
+}
+
+model LeaveBalance {
+  id         String   @id @default(cuid())
+  employeeId String
+  leaveTypeId String
+  totalDays  Int
+  usedDays   Int      @default(0)
+  year       Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  employee  Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveType LeaveType @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, leaveTypeId, year])
+}
+
+model LeaveApplication {
+  id          String   @id @default(cuid())
+  employeeId  String
+  leaveTypeId String
+  startDate   String
+  endDate     String
+  reason      String
+  status      String   @default("pending")
+  approvedBy  String?
+  approvedAt  DateTime?
+  rejectReason String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  employee  Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveType LeaveType @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
+  approver  Employee? @relation("ApprovedLeaves", fields: [approvedBy], references: [id])
 }

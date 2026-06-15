@@ -17,21 +17,12 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json({
-      checkedIn: attendance?.checkIn ? true : false,
-      checkedOut: attendance?.checkOut ? true : false,
-      attendance: attendance ? {
-        id: attendance.id,
-        date: attendance.date,
-        checkIn: attendance.checkIn,
-        checkOut: attendance.checkOut,
-        status: attendance.status,
-        workHours: attendance.workHours,
-        checkInAddr: attendance.checkInAddr,
-        checkOutAddr: attendance.checkOutAddr,
-      } : null,
+      checkedIn: !!attendance?.checkIn,
+      checkedOut: !!attendance?.checkOut,
+      attendance,
     });
   } catch (error) {
     console.error('Today attendance error:', error);
-    return NextResponse.json({ error: 'Failed to fetch today attendance' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to get today status' }, { status: 500 });
   }
 }

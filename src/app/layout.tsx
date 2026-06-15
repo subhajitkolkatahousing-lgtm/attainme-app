@@ -22,8 +22,8 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "FaceAttend - Attendance & Payroll",
-  description: "Smart face recognition attendance system with live location tracking and payroll management",
+  title: "Attendance Khata - Attendance & Payroll",
+  description: "Smart face recognition attendance system with live location tracking, leave management and payroll",
   manifest: "/manifest.json",
   icons: {
     icon: "/icon-192.png",
@@ -32,7 +32,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "FaceAttend",
+    title: "AttendanceKhata",
   },
 };
 

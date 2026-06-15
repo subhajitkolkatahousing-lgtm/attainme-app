@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
         checkOutLng: longitude || null,
         checkOutPhoto: photo || null,
         checkOutAddr: address || null,
-        status: 'checked-out',
+        status: 'pending', // Changed to pending - admin will approve
         workHours: Math.round(workHours * 100) / 100,
       },
     });

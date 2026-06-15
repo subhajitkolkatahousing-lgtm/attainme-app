@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
         checkInLng: longitude || null,
         checkInPhoto: photo || null,
         checkInAddr: address || null,
-        status: 'checked-in',
+        status: 'pending', // Changed to pending - admin will approve
       },
       create: {
         employeeId,
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
         checkInLng: longitude || null,
         checkInPhoto: photo || null,
         checkInAddr: address || null,
-        status: 'checked-in',
+        status: 'pending', // Changed to pending - admin will approve
       },
     });
 
