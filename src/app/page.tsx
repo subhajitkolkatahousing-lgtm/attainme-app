@@ -843,6 +843,8 @@ export default function HomePage() {
     { id: 'check-in-out', label: 'Home', icon: Fingerprint },
     { id: 'my-attendance', label: 'Records', icon: Clock },
     { id: 'my-leave', label: 'Leave', icon: CalendarDays },
+    { id: 'pay-slip', label: 'Payslip', icon: Receipt },
+    { id: 'reimbursements', label: 'Expenses', icon: IndianRupee },
     { id: 'profile', label: 'Profile', icon: Users },
   ];
 
