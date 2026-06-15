@@ -9,8 +9,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Reimbursement ID, action, and admin ID are required' }, { status: 400 });
     }
 
-    if (!['approve', 'reject'].includes(action)) {
-      return NextResponse.json({ error: 'Action must be approve or reject' }, { status: 400 });
+    if (!['approve', 'reject', 'paid'].includes(action)) {
+      return NextResponse.json({ error: 'Action must be approve, reject, or paid' }, { status: 400 });
     }
 
     const admin = await db.employee.findUnique({ where: { id: adminId } });
@@ -23,14 +23,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Reimbursement not found' }, { status: 404 });
     }
 
-    if (reimbursement.status !== 'pending') {
+    // For approve/reject, status must be 'pending'; for paid, status must be 'approved'
+    if (action === 'paid' && reimbursement.status !== 'approved') {
+      return NextResponse.json({ error: 'Reimbursement must be approved before marking as paid' }, { status: 400 });
+    }
+    if ((action === 'approve' || action === 'reject') && reimbursement.status !== 'pending') {
       return NextResponse.json({ error: 'Reimbursement already processed' }, { status: 400 });
     }
+
+    let newStatus: string;
+    if (action === 'approve') newStatus = 'approved';
+    else if (action === 'reject') newStatus = 'rejected';
+    else newStatus = 'paid';
 
     const updated = await db.reimbursement.update({
       where: { id: reimbursementId },
       data: {
-        status: action === 'approve' ? 'approved' : 'rejected',
+        status: newStatus,
         approvedBy: adminId,
         approvedAt: new Date(),
         rejectReason: action === 'reject' ? (rejectReason || 'Rejected by admin') : null,

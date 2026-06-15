@@ -100,7 +100,10 @@ export default function HomePage() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [seeded, setSeeded] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try { return localStorage.getItem('darkMode') === 'true'; } catch { return false; }
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Login
@@ -164,22 +167,34 @@ export default function HomePage() {
   const [myReimbursements, setMyReimbursements] = useState<ReimbursementRecord[]>([]);
   const [showReimbursementForm, setShowReimbursementForm] = useState(false);
   const [showInstallGuide, setShowInstallGuide] = useState(false);
-  const [reimbursementType, setReimbursementType] = useState<'travel_allowance' | 'mobile_recharge'>('travel_allowance');
+  const [reimbursementType, setReimbursementType] = useState<string>('travel_allowance');
   const [reimbursementAmount, setReimbursementAmount] = useState('');
   const [reimbursementDescription, setReimbursementDescription] = useState('');
-  const [reimbursementPhoto, setReimbursementPhoto] = useState<string | null>(null);
+  const [reimbursementPhotos, setReimbursementPhotos] = useState<string[]>([]);
   const [reimbursementPhotoLoading, setReimbursementPhotoLoading] = useState(false);
   const reimburseFileRef = useRef<HTMLInputElement>(null);
 
   // Dark mode persist
   useEffect(() => {
-    const saved = localStorage.getItem('darkMode');
-    if (saved === 'true') setDarkMode(true);
-  }, []);
-  useEffect(() => {
     if (darkMode) { document.documentElement.classList.add('dark'); } else { document.documentElement.classList.remove('dark'); }
     localStorage.setItem('darkMode', String(darkMode));
   }, [darkMode]);
+
+  // Hydrate from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('attendance-khata-store');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.user && !user) {
+          queueMicrotask(() => {
+            setUser(parsed.user);
+            setCurrentView(parsed.currentView || (parsed.user.role === 'admin' ? 'dashboard' : 'check-in-out'));
+          });
+        }
+      } catch {}
+    }
+  }, []);
 
   // Seed
   useEffect(() => {
@@ -223,17 +238,41 @@ export default function HomePage() {
     setCameraLoading(true);
     try {
       if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } }, audio: false });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } }, audio: false });
+      } catch {
+        // Fallback: try without facingMode constraint
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      }
       streamRef.current = stream;
       const video = videoRef.current;
       if (video) {
         video.srcObject = stream;
-        await new Promise<void>((resolve) => { video.onloadedmetadata = () => { video.play(); resolve(); }; });
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => { resolve(); }, 5000); // Don't wait forever
+          video.onloadedmetadata = () => {
+            clearTimeout(timeout);
+            video.play().then(resolve).catch(resolve);
+          };
+        });
         setCameraActive(true);
       } else {
-        setTimeout(async () => { const v = videoRef.current; if (v) { v.srcObject = stream; await new Promise<void>((r) => { v.onloadedmetadata = () => { v.play(); r(); }; }); } setCameraActive(true); }, 100);
+        // Video ref not ready yet, wait a bit
+        await new Promise(r => setTimeout(r, 200));
+        const v = videoRef.current;
+        if (v) {
+          v.srcObject = stream;
+          await new Promise<void>((resolve) => {
+            const timeout = setTimeout(() => resolve(), 5000);
+            v.onloadedmetadata = () => { clearTimeout(timeout); v.play().then(resolve).catch(resolve); };
+          });
+        }
+        setCameraActive(true);
       }
-    } catch { toast({ title: 'Camera Error', description: 'Please allow camera permission.', variant: 'destructive' }); }
+    } catch (err) {
+      toast({ title: 'Camera Error', description: 'Please allow camera permission and try again.', variant: 'destructive' });
+    }
     setCameraLoading(false);
   };
 
@@ -263,20 +302,36 @@ export default function HomePage() {
     try {
       if (!navigator.geolocation) { toast({ title: 'Error', description: 'Geolocation not supported', variant: 'destructive' }); setLocationLoading(false); return; }
 
-      const pos: GeolocationPosition = await new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 15000 });
-      }).catch(() => {
-        toast({ title: 'Location Error', description: 'Allow location permission', variant: 'destructive' });
-        setLocationLoading(false);
-        return null;
-      });
+      const getPosition = (opts: PositionOptions): Promise<GeolocationPosition> =>
+        new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, opts));
 
-      if (!pos) return;
+      let pos: GeolocationPosition | null = null;
+      try {
+        pos = await getPosition({ enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 });
+      } catch {
+        // Fallback to low accuracy
+        try {
+          pos = await getPosition({ enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 });
+        } catch {
+          toast({ title: 'Location Error', description: 'Allow location permission', variant: 'destructive' });
+          setLocationLoading(false);
+          return;
+        }
+      }
 
-      let addr = `${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`;
-      try { const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.coords.latitude}&lon=${pos.coords.longitude}`); const d = await r.json(); if (d.display_name) addr = d.display_name; } catch {}
-      setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, address: addr });
+      if (!pos) { setLocationLoading(false); return; }
+
+      // Show coordinates immediately
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      setCurrentLocation({ lat, lng, address: `${lat.toFixed(6)}, ${lng.toFixed(6)}` });
       setLocationLoading(false);
+
+      // Fetch address in background (don't block)
+      fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
+        .then(r => r.json())
+        .then(d => { if (d.display_name) setCurrentLocation(prev => prev ? { ...prev, address: d.display_name } : null); })
+        .catch(() => {});
     } catch { setLocationLoading(false); }
   };
 
@@ -451,36 +506,25 @@ export default function HomePage() {
   };
 
   const handleLogout = () => {
+    localStorage.removeItem('attendance-khata-store');
     setUser(null); setCurrentView('check-in-out'); setCameraActive(false); setCameraLoading(false);
     setCapturedPhoto(null); setCurrentLocation(null); setCheckInFlow(false); setCheckOutFlow(false);
     setLoginEmpId(''); setLoginPassword(''); stopCamera();
   };
 
   // ===== REIMBURSEMENT =====
-  const handleReimbursementPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setReimbursementPhotoLoading(true);
-    const reader = new FileReader();
-    reader.onload = () => {
-      setReimbursementPhoto(reader.result as string);
-      setReimbursementPhotoLoading(false);
-    };
-    reader.onerror = () => { toast({ title: 'Error', description: 'Failed to read image', variant: 'destructive' }); setReimbursementPhotoLoading(false); };
-    reader.readAsDataURL(file);
-  };
-
-  const handleSubmitReimbursement = async () => {
-    if (!user || !reimbursementAmount || !reimbursementPhoto) {
-      toast({ title: 'Error', description: 'Amount and photo are required', variant: 'destructive' }); return;
+  const handleSubmitReimbursementWithPhotos = async () => {
+    if (!user || !reimbursementAmount || reimbursementPhotos.length === 0) {
+      toast({ title: 'Error', description: 'Amount and at least one photo are required', variant: 'destructive' }); return;
     }
     setIsLoading(true);
     try {
+      const photosJson = JSON.stringify(reimbursementPhotos);
       const res = await fetch('/api/reimbursements', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           employeeId: user.id, type: reimbursementType,
-          amount: reimbursementAmount, photo: reimbursementPhoto,
+          amount: reimbursementAmount, photo: photosJson,
           description: reimbursementDescription,
         }),
       });
@@ -488,7 +532,7 @@ export default function HomePage() {
         toast({ title: 'Submitted!', description: 'Your claim has been submitted for approval' });
         setShowReimbursementForm(false);
         setReimbursementAmount(''); setReimbursementDescription('');
-        setReimbursementPhoto(null);
+        setReimbursementPhotos([]);
         const r2 = await fetch(`/api/reimbursements?employeeId=${user.id}`); if (r2.ok) setMyReimbursements(await r2.json());
       } else { const d = await res.json(); toast({ title: 'Error', description: d.error, variant: 'destructive' }); }
     } catch { toast({ title: 'Error', variant: 'destructive' }); }
@@ -1210,40 +1254,64 @@ export default function HomePage() {
             </Card>
           ) : (
             <div className="space-y-3">
-              {reimbursements.map(r => (
-                <Card key={r.id} className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
-                  <CardContent className="p-4">
-                    <div className="flex items-start gap-3">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${r.type === 'travel_allowance' ? (dm ? 'bg-blue-900/50' : 'bg-blue-100') : (dm ? 'bg-indigo-900/50' : 'bg-indigo-100')}`}>
-                        {r.type === 'travel_allowance' ? <Plane className={`w-5 h-5 ${dm ? 'text-blue-400' : 'text-blue-600'}`} /> : <Phone className={`w-5 h-5 ${dm ? 'text-indigo-400' : 'text-indigo-600'}`} />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <p className={`font-semibold text-sm ${dm ? 'text-white' : ''}`}>{r.employee?.name}</p>
-                          <p className={`font-bold ${dm ? 'text-white' : ''}`}>{formatCurrency(r.amount)}</p>
+              {reimbursements.map(r => {
+                let photos: string[] = [];
+                try { const parsed = JSON.parse(r.photo); if (Array.isArray(parsed)) photos = parsed; else photos = [r.photo]; } catch { photos = [r.photo]; }
+                return (
+                  <Card key={r.id} className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
+                    <CardContent className="p-4">
+                      <div className="flex items-start gap-3">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${r.type === 'travel_allowance' ? (dm ? 'bg-blue-900/50' : 'bg-blue-100') : (dm ? 'bg-indigo-900/50' : 'bg-indigo-100')}`}>
+                          {r.type === 'travel_allowance' ? <Plane className={`w-5 h-5 ${dm ? 'text-blue-400' : 'text-blue-600'}`} /> : <Phone className={`w-5 h-5 ${dm ? 'text-indigo-400' : 'text-indigo-600'}`} />}
                         </div>
-                        <p className={`text-xs ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{r.type === 'travel_allowance' ? 'Travel Allowance' : 'Mobile Recharge'} · {r.employee?.empId}</p>
-                        {r.description && <p className={`text-xs mt-1 ${dm ? 'text-gray-500' : 'text-gray-400'}`}>{r.description}</p>}
-                        <p className={`text-[10px] mt-1 ${dm ? 'text-gray-600' : 'text-gray-400'}`}>{new Date(r.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <p className={`font-semibold text-sm ${dm ? 'text-white' : ''}`}>{r.employee?.name}</p>
+                            <p className={`font-bold ${dm ? 'text-white' : ''}`}>{formatCurrency(r.amount)}</p>
+                          </div>
+                          <p className={`text-xs ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{r.type === 'travel_allowance' ? 'Travel Allowance' : r.type === 'mobile_recharge' ? 'Mobile Recharge' : r.type.replace(/_/g, ' ')} · {r.employee?.empId}</p>
+                          {r.description && <p className={`text-xs mt-1 ${dm ? 'text-gray-500' : 'text-gray-400'}`}>{r.description}</p>}
+                          <p className={`text-[10px] mt-1 ${dm ? 'text-gray-600' : 'text-gray-400'}`}>{new Date(r.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex gap-2 mt-3">
-                      <button onClick={() => setPhotoView({ photo: r.photo, label: r.type === 'travel_allowance' ? 'Travel Bill' : 'Mobile Recharge Bill' })} className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-medium ${dm ? 'bg-gray-800 text-blue-400' : 'bg-blue-50 text-blue-700'}`}>
-                        <Eye className="w-3 h-3" /> View Bill
-                      </button>
-                      {r.status === 'pending' && (
-                        <>
-                          <Button onClick={() => handleReimbursementAction(r.id, 'approve')} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs h-8 ml-auto"><CheckCircle2 className="w-3 h-3 mr-1" /> Approve</Button>
-                          <Button onClick={() => handleReimbursementAction(r.id, 'reject', 'Rejected')} size="sm" variant="outline" className="text-red-600 border-red-200 rounded-lg text-xs h-8"><XCircle className="w-3 h-3 mr-1" /> Reject</Button>
-                        </>
-                      )}
-                      {r.status !== 'pending' && (
-                        <Badge className={`ml-auto ${r.status === 'approved' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'} text-[10px]`}>{r.status}</Badge>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                      <div className="flex gap-2 mt-3 overflow-x-auto">
+                        {photos.map((p, idx) => (
+                          <img key={idx} src={p} alt={`Bill ${idx + 1}`} onClick={() => setPhotoView({ photo: p, label: `Bill ${idx + 1} - ${r.employee?.name}` })} className="w-14 h-14 rounded-lg object-cover cursor-pointer hover:opacity-80 flex-shrink-0" />
+                        ))}
+                      </div>
+                      <div className="flex gap-2 mt-3">
+                        {r.status === 'pending' && (
+                          <>
+                            <Button onClick={() => handleReimbursementAction(r.id, 'approve')} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs h-8 ml-auto"><CheckCircle2 className="w-3 h-3 mr-1" /> Approve</Button>
+                            <Button onClick={() => handleReimbursementAction(r.id, 'reject', 'Rejected')} size="sm" variant="outline" className="text-red-600 border-red-200 rounded-lg text-xs h-8"><XCircle className="w-3 h-3 mr-1" /> Reject</Button>
+                          </>
+                        )}
+                        {r.status === 'approved' && (
+                          <>
+                            <Badge className={`ml-auto bg-blue-100 text-blue-700 text-[10px]`}>Approved</Badge>
+                            <Button onClick={async () => {
+                              await fetch('/api/reimbursements/approve', {
+                                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ reimbursementId: r.id, action: 'paid', adminId: user.id }),
+                              });
+                              toast({ title: 'Marked as Paid!' });
+                              const r2 = await fetch('/api/reimbursements'); if (r2.ok) setReimbursements(await r2.json());
+                            }} size="sm" className="bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs h-8">
+                              <IndianRupee className="w-3 h-3 mr-1" /> Mark Paid
+                            </Button>
+                          </>
+                        )}
+                        {r.status === 'paid' && (
+                          <Badge className={`ml-auto bg-green-100 text-green-700 text-[10px]`}>Paid</Badge>
+                        )}
+                        {r.status === 'rejected' && (
+                          <Badge className={`ml-auto bg-red-100 text-red-700 text-[10px]`}>Rejected</Badge>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           )}
         </div>
@@ -1379,7 +1447,12 @@ export default function HomePage() {
         <div className="space-y-4">
           <h2 className={`text-xl font-bold ${dm ? 'text-white' : ''}`}>My Pay Slips</h2>
           {payrollRecords.length === 0 ? (
-            <Card className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}><CardContent className="py-12 text-center"><Receipt className={`w-12 h-12 mx-auto mb-3 ${dm ? 'text-gray-600' : 'text-gray-300'}`} /><p className={dm ? 'text-gray-400' : 'text-gray-500'}>No pay slips available yet</p></CardContent></Card>
+            <Card className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
+              <CardContent className="py-12 text-center">
+                <Receipt className={`w-12 h-12 mx-auto mb-3 ${dm ? 'text-gray-600' : 'text-gray-300'}`} />
+                <p className={dm ? 'text-gray-400' : 'text-gray-500'}>No pay slips available yet</p>
+              </CardContent>
+            </Card>
           ) : (
             <div className="space-y-3">
               {payrollRecords.map(pr => (
@@ -1388,23 +1461,38 @@ export default function HomePage() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="font-bold text-lg">{MONTH_FULL[pr.month - 1]} {pr.year}</p>
-                        <p className="text-blue-200 text-xs">Pay Slip</p>
+                        <p className="text-blue-200 text-xs">Payslip</p>
                       </div>
                       <div className="text-right">
                         <p className="text-2xl font-bold">{formatCurrency(pr.netSalary)}</p>
-                        <Badge className={pr.status === 'paid' ? 'bg-white/20 text-white text-[10px]' : 'bg-amber-400 text-amber-900 text-[10px]'}>{pr.status}</Badge>
+                        <Badge className={pr.status === 'paid' ? 'bg-white/20 text-white text-[10px]' : 'bg-amber-500/50 text-white text-[10px]'}>{pr.status}</Badge>
                       </div>
                     </div>
                   </div>
                   <CardContent className={`p-4 ${dm ? 'bg-gray-900' : ''}`}>
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div className={`rounded-xl p-2.5 ${dm ? 'bg-gray-800' : 'bg-gray-50'}`}><p className="text-[10px] text-gray-500 uppercase">Basic Salary</p><p className={`font-semibold ${dm ? 'text-white' : ''}`}>{formatCurrency(pr.basicSalary)}</p></div>
-                      <div className={`rounded-xl p-2.5 ${dm ? 'bg-gray-800' : 'bg-gray-50'}`}><p className="text-[10px] text-gray-500 uppercase">Working Days</p><p className={`font-semibold ${dm ? 'text-white' : ''}`}>{pr.presentDays}/{pr.workingDays}</p></div>
-                      <div className={`rounded-xl p-2.5 ${dm ? 'bg-gray-800' : 'bg-gray-50'}`}><p className="text-[10px] text-gray-500 uppercase">Overtime</p><p className="font-semibold text-blue-600">+{formatCurrency(pr.overtime)}</p></div>
-                      <div className={`rounded-xl p-2.5 ${dm ? 'bg-gray-800' : 'bg-gray-50'}`}><p className="text-[10px] text-gray-500 uppercase">Deductions</p><p className="font-semibold text-red-600">-{formatCurrency(pr.deductions)}</p></div>
-                      <div className={`rounded-xl p-2.5 ${dm ? 'bg-gray-800' : 'bg-gray-50'}`}><p className="text-[10px] text-gray-500 uppercase">Bonus</p><p className="font-semibold text-blue-600">+{formatCurrency(pr.bonus)}</p></div>
-                      <div className={`rounded-xl p-2.5 bg-blue-50 dark:bg-blue-900/30`}><p className="text-[10px] text-blue-500 uppercase">Net Salary</p><p className="font-bold text-blue-700 text-lg">{formatCurrency(pr.netSalary)}</p></div>
+                      <div className={`rounded-xl p-2.5 ${dm ? 'bg-gray-800' : 'bg-gray-50'}`}><p className="text-[10px] text-gray-500 uppercase">Present Days</p><p className={`font-semibold ${dm ? 'text-white' : ''}`}>{pr.presentDays}/{pr.workingDays}</p></div>
+                      <div className={`rounded-xl p-2.5 ${dm ? 'bg-gray-800' : 'bg-gray-50'}`}><p className="text-[10px] text-gray-500 uppercase">Overtime</p><p className={`font-semibold text-blue-600 ${dm ? 'text-blue-400' : ''}`}>+{formatCurrency(pr.overtime)}</p></div>
+                      <div className={`rounded-xl p-2.5 ${dm ? 'bg-gray-800' : 'bg-gray-50'}`}><p className="text-[10px] text-gray-500 uppercase">Deductions</p><p className={`font-semibold text-red-600 ${dm ? 'text-red-400' : ''}`}>-{formatCurrency(pr.deductions)}</p></div>
+                      <div className={`rounded-xl p-2.5 ${dm ? 'bg-gray-800' : 'bg-gray-50'}`}><p className="text-[10px] text-gray-500 uppercase">Bonus</p><p className={`font-semibold text-blue-600 ${dm ? 'text-blue-400' : ''}`}>+{formatCurrency(pr.bonus)}</p></div>
+                      <div className={`rounded-xl p-2.5 ${dm ? 'bg-gray-800' : 'bg-gray-50'}`}><p className="text-[10px] text-gray-500 uppercase">Net Salary</p><p className={`font-bold text-blue-600 ${dm ? 'text-blue-400' : ''}`}>{formatCurrency(pr.netSalary)}</p></div>
                     </div>
+                    {pr.status === 'paid' && (
+                      <Button onClick={() => {
+                        const html = `<!DOCTYPE html><html><head><title>Payslip - ${MONTH_FULL[pr.month - 1]} ${pr.year}</title><style>body{font-family:Arial,sans-serif;max-width:600px;margin:40px auto;padding:20px;color:#333}.header{text-align:center;border-bottom:3px solid #2563eb;padding-bottom:20px;margin-bottom:20px}.header h1{color:#2563eb;margin:0;font-size:24px}.header p{color:#666;margin:4px 0 0}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:20px 0}.info-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px}.info-box .label{font-size:10px;color:#94a3b8;text-transform:uppercase}.info-box .value{font-size:16px;font-weight:bold;color:#1e293b;margin-top:4px}.total{background:#2563eb;color:white;border-radius:8px;padding:16px;text-align:center;margin-top:20px}.total .amount{font-size:28px;font-weight:bold}.total .label{font-size:12px;opacity:0.8}.negative{color:#dc2626!important}.positive{color:#2563eb!important}.footer{text-align:center;margin-top:30px;color:#94a3b8;font-size:11px}</style></head><body><div class="header"><h1>AttendanceKhata</h1><p>Payslip for ${MONTH_FULL[pr.month - 1]} ${pr.year}</p></div><div class="info-grid"><div class="info-box"><div class="label">Employee</div><div class="value">${user?.name || ''}</div></div><div class="info-box"><div class="label">Employee ID</div><div class="value">${user?.empId || ''}</div></div><div class="info-box"><div class="label">Department</div><div class="value">${user?.department || ''}</div></div><div class="info-box"><div class="label">Position</div><div class="value">${user?.position || ''}</div></div><div class="info-box"><div class="label">Basic Salary</div><div class="value">₹${pr.basicSalary.toLocaleString('en-IN')}</div></div><div class="info-box"><div class="label">Present Days</div><div class="value">${pr.presentDays}/${pr.workingDays}</div></div><div class="info-box"><div class="label">Overtime</div><div class="value positive">+₹${pr.overtime.toLocaleString('en-IN')}</div></div><div class="info-box"><div class="label">Deductions</div><div class="value negative">-₹${pr.deductions.toLocaleString('en-IN')}</div></div><div class="info-box"><div class="label">Bonus</div><div class="value positive">+₹${pr.bonus.toLocaleString('en-IN')}</div></div><div class="info-box"><div class="label">Status</div><div class="value">${pr.status.toUpperCase()}</div></div></div><div class="total"><div class="label">NET SALARY</div><div class="amount">₹${pr.netSalary.toLocaleString('en-IN')}</div></div><div class="footer">Generated on ${new Date().toLocaleDateString('en-IN')} · AttendanceKhata Payroll System</div></body></html>`;
+                        const blob = new Blob([html], { type: 'text/html' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `Payslip_${MONTH_FULL[pr.month - 1]}_${pr.year}.html`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                        toast({ title: 'Downloaded!', description: `Payslip for ${MONTH_FULL[pr.month - 1]} ${pr.year}` });
+                      }} className="w-full mt-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl h-10 font-semibold">
+                        <Download className="w-4 h-4 mr-2" /> Download Pay Slip
+                      </Button>
+                    )}
                   </CardContent>
                 </Card>
               ))}
@@ -1413,108 +1501,127 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ===== EMPLOYEE: REIMBURSEMENTS ===== */}
+      {/* ===== EMPLOYEE: EXPENSE CLAIMS ===== */}
       {currentView === 'reimbursements' && !isAdmin && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className={`text-xl font-bold ${dm ? 'text-white' : ''}`}>Expense Claims</h2>
-            <Button onClick={() => setShowReimbursementForm(true)} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl h-9 text-xs"><Send className="w-3.5 h-3.5 mr-1" /> New Claim</Button>
+            <h2 className={`text-xl font-bold ${dm ? 'text-white' : ''}`}>My Expense Claims</h2>
+            <Button onClick={() => { setShowReimbursementForm(true); setReimbursementPhotos([]); setReimbursementAmount(''); setReimbursementDescription(''); }} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl h-9 text-xs">
+              <IndianRupee className="w-3.5 h-3.5 mr-1" /> New Claim
+            </Button>
           </div>
 
-          {/* Quick action cards */}
-          <div className="grid grid-cols-2 gap-3">
-            <button onClick={() => { setReimbursementType('travel_allowance'); setShowReimbursementForm(true); }} className={`p-4 rounded-2xl text-left transition-all ${dm ? 'bg-gray-900 hover:bg-gray-800' : 'bg-white hover:bg-gray-50'} shadow-sm`}>
-              <Plane className={`w-6 h-6 mb-2 ${dm ? 'text-blue-400' : 'text-blue-600'}`} />
-              <p className={`text-sm font-semibold ${dm ? 'text-white' : ''}`}>Travel Allowance</p>
-              <p className={`text-xs ${dm ? 'text-gray-500' : 'text-gray-400'}`}>Submit travel bill</p>
-            </button>
-            <button onClick={() => { setReimbursementType('mobile_recharge'); setShowReimbursementForm(true); }} className={`p-4 rounded-2xl text-left transition-all ${dm ? 'bg-gray-900 hover:bg-gray-800' : 'bg-white hover:bg-gray-50'} shadow-sm`}>
-              <Phone className={`w-6 h-6 mb-2 ${dm ? 'text-indigo-400' : 'text-indigo-600'}`} />
-              <p className={`text-sm font-semibold ${dm ? 'text-white' : ''}`}>Mobile Recharge</p>
-              <p className={`text-xs ${dm ? 'text-gray-500' : 'text-gray-400'}`}>Submit recharge bill</p>
-            </button>
-          </div>
-
-          {/* My Claims */}
-          <Card className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
-            <CardHeader className="pb-2"><CardTitle className={`text-sm font-semibold ${dm ? 'text-white' : ''}`}>My Claims</CardTitle></CardHeader>
-            <CardContent className="space-y-2">
-              {myReimbursements.length === 0 ? <p className={`text-sm text-center py-4 ${dm ? 'text-gray-500' : 'text-gray-400'}`}>No claims submitted yet</p> :
-                myReimbursements.map(r => (
-                  <div key={r.id} className={`p-3 rounded-xl ${dm ? 'bg-gray-800' : 'bg-gray-50'}`}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        {r.type === 'travel_allowance' ? <Plane className={`w-4 h-4 ${dm ? 'text-blue-400' : 'text-blue-600'}`} /> : <Phone className={`w-4 h-4 ${dm ? 'text-indigo-400' : 'text-indigo-600'}`} />}
-                        <div>
-                          <p className={`text-sm font-semibold ${dm ? 'text-white' : ''}`}>{r.type === 'travel_allowance' ? 'Travel Allowance' : 'Mobile Recharge'}</p>
-                          <p className={`text-xs ${dm ? 'text-gray-500' : 'text-gray-400'}`}>{formatDate(r.createdAt)}</p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className={`font-bold text-sm ${dm ? 'text-white' : ''}`}>{formatCurrency(r.amount)}</p>
-                        <Badge className={`${r.status === 'approved' ? 'bg-blue-100 text-blue-700' : r.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'} text-[10px]`}>{r.status}</Badge>
-                      </div>
-                    </div>
-                    <div className="flex gap-2 mt-2">
-                      <button onClick={() => setPhotoView({ photo: r.photo, label: 'Bill Photo' })} className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] ${dm ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-600'}`}>
-                        <Eye className="w-3 h-3" /> View Bill
-                      </button>
-                    </div>
-                  </div>
-                ))
-              }
-            </CardContent>
-          </Card>
-
-          {/* Reimbursement Form Dialog */}
+          {/* Claim Form Modal */}
           <Dialog open={showReimbursementForm} onOpenChange={setShowReimbursementForm}>
-            <DialogContent className={`rounded-2xl ${dm ? 'bg-gray-900 border-gray-800' : ''}`}>
-              <DialogHeader><DialogTitle className={dm ? 'text-white' : ''}>Submit Expense Claim</DialogTitle></DialogHeader>
+            <DialogContent className={`max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl ${dm ? 'bg-gray-900 border-gray-800' : ''}`}>
+              <DialogHeader>
+                <DialogTitle className={dm ? 'text-white' : ''}>Submit Expense Claim</DialogTitle>
+              </DialogHeader>
               <div className="space-y-3 py-2">
-                <div><Label className={`text-xs ${dm ? 'text-gray-300' : ''}`}>Claim Type *</Label>
-                  <Select value={reimbursementType} onValueChange={v => setReimbursementType(v as any)}>
+                <div><Label className="text-xs">Type</Label>
+                  <Select value={reimbursementType} onValueChange={v => setReimbursementType(v)}>
                     <SelectTrigger className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="travel_allowance">Travel Allowance</SelectItem>
                       <SelectItem value="mobile_recharge">Mobile Recharge</SelectItem>
+                      <SelectItem value="office_supplies">Office Supplies</SelectItem>
+                      <SelectItem value="food">Food & Meals</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                <div><Label className={`text-xs ${dm ? 'text-gray-300' : ''}`}>Amount (₹) *</Label>
+                <div><Label className="text-xs">Amount (₹) *</Label>
                   <Input type="number" placeholder="Enter amount" value={reimbursementAmount} onChange={e => setReimbursementAmount(e.target.value)} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} />
                 </div>
-                <div><Label className={`text-xs ${dm ? 'text-gray-300' : ''}`}>Description</Label>
+                <div><Label className="text-xs">Description</Label>
                   <Input placeholder="Brief description" value={reimbursementDescription} onChange={e => setReimbursementDescription(e.target.value)} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} />
                 </div>
                 <div>
-                  <Label className={`text-xs ${dm ? 'text-gray-300' : ''}`}>Upload Bill / Screenshot *</Label>
-                  <div className={`mt-1 rounded-xl border-2 border-dashed p-4 text-center cursor-pointer transition-all ${dm ? 'border-gray-700 hover:border-blue-500 bg-gray-800' : 'border-gray-300 hover:border-blue-400 bg-gray-50'}`}
-                    onClick={() => reimburseFileRef.current?.click()}>
-                    {reimbursementPhoto ? (
-                      <div className="relative">
-                        <img src={reimbursementPhoto} alt="Bill" className="max-h-32 mx-auto rounded-lg" />
-                        <button onClick={(e) => { e.stopPropagation(); setReimbursementPhoto(null); }} className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center"><X className="w-3 h-3" /></button>
+                  <Label className="text-xs">Add Photos/Bills *</Label>
+                  <div className="mt-2 space-y-2">
+                    {reimbursementPhotos.map((photo, idx) => (
+                      <div key={idx} className={`relative rounded-xl overflow-hidden ${dm ? 'bg-gray-800' : 'bg-gray-50'}`}>
+                        <div className="flex items-center gap-3 p-2">
+                          <img src={photo} alt={`Photo ${idx + 1}`} className="w-16 h-16 rounded-lg object-cover" />
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-xs font-medium ${dm ? 'text-gray-300' : 'text-gray-700'}`}>Photo {idx + 1}</p>
+                          </div>
+                          <button onClick={() => setReimbursementPhotos(prev => prev.filter((_, i) => i !== idx))} className="w-7 h-7 flex items-center justify-center rounded-full bg-red-100 text-red-600 hover:bg-red-200">
+                            <XCircle className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
-                    ) : (
-                      <div>
-                        <ImageIcon className={`w-8 h-8 mx-auto mb-2 ${dm ? 'text-gray-600' : 'text-gray-400'}`} />
-                        <p className={`text-xs ${dm ? 'text-gray-500' : 'text-gray-400'}`}>Click to upload bill/screenshot</p>
-                      </div>
-                    )}
-                    <input ref={reimburseFileRef} type="file" accept="image/*" className="hidden" onChange={handleReimbursementPhoto} />
+                    ))}
                   </div>
+                  {reimbursementPhotos.length < 5 && (
+                    <div className="mt-2">
+                      <input type="file" accept="image/*" capture="environment" ref={reimburseFileRef} onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        setReimbursementPhotoLoading(true);
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          setReimbursementPhotos(prev => [...prev, reader.result as string]);
+                          setReimbursementPhotoLoading(false);
+                          if (reimburseFileRef.current) reimburseFileRef.current.value = '';
+                        };
+                        reader.onerror = () => { setReimbursementPhotoLoading(false); };
+                        reader.readAsDataURL(file);
+                      }} className="hidden" />
+                      <Button onClick={() => reimburseFileRef.current?.click()} disabled={reimbursementPhotoLoading} variant="outline" className={`w-full rounded-xl h-10 ${dm ? 'border-gray-700 text-gray-300' : ''}`}>
+                        {reimbursementPhotoLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ImageIcon className="w-4 h-4 mr-2" />}
+                        {reimbursementPhotoLoading ? 'Adding...' : `Add Photo (${reimbursementPhotos.length}/5)`}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowReimbursementForm(false)} className="rounded-xl">Cancel</Button>
-                <Button onClick={handleSubmitReimbursement} disabled={isLoading || !reimbursementPhoto} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl">
+                <Button onClick={handleSubmitReimbursementWithPhotos} disabled={isLoading || reimbursementPhotos.length === 0} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl">
                   {isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}Submit Claim
                 </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
+          {/* My claims list */}
+          {myReimbursements.length === 0 ? (
+            <Card className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
+              <CardContent className="py-12 text-center">
+                <IndianRupee className={`w-12 h-12 mx-auto mb-3 ${dm ? 'text-gray-600' : 'text-gray-300'}`} />
+                <p className={dm ? 'text-gray-400' : 'text-gray-500'}>No expense claims yet</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {myReimbursements.map(r => {
+                let photos: string[] = [];
+                try { const parsed = JSON.parse(r.photo); if (Array.isArray(parsed)) photos = parsed; else photos = [r.photo]; } catch { photos = [r.photo]; }
+                return (
+                  <Card key={r.id} className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className={`font-semibold text-sm ${dm ? 'text-white' : ''}`}>{formatCurrency(r.amount)}</p>
+                          <p className={`text-xs ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{r.type.replace(/_/g, ' ')} · {formatDate(r.createdAt)}</p>
+                          {r.description && <p className={`text-xs mt-1 ${dm ? 'text-gray-500' : 'text-gray-400'}`}>{r.description}</p>}
+                        </div>
+                        <Badge className={r.status === 'approved' || r.status === 'paid' ? 'bg-blue-100 text-blue-700 text-[10px]' : r.status === 'rejected' ? 'bg-red-100 text-red-700 text-[10px]' : 'bg-amber-100 text-amber-700 text-[10px]'}>{r.status}</Badge>
+                      </div>
+                      <div className="flex gap-2 mt-3 overflow-x-auto">
+                        {photos.map((p, idx) => (
+                          <img key={idx} src={p} alt={`Bill ${idx + 1}`} onClick={() => setPhotoView({ photo: p, label: `Bill Photo ${idx + 1}` })} className="w-16 h-16 rounded-lg object-cover cursor-pointer hover:opacity-80 flex-shrink-0" />
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

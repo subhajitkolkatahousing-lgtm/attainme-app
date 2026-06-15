@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Employee ID, type, amount, and photo are required' }, { status: 400 });
     }
 
-    if (!['travel_allowance', 'mobile_recharge'].includes(type)) {
+    if (!['travel_allowance', 'mobile_recharge', 'office_supplies', 'food', 'other'].includes(type)) {
       return NextResponse.json({ error: 'Invalid reimbursement type' }, { status: 400 });
     }
 
