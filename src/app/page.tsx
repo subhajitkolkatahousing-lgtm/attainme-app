@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -24,7 +25,7 @@ import {
   Camera, MapPin, Clock, Users, LogOut,
   UserCheck, UserX, Fingerprint, ArrowRight, Timer, Home,
   Wallet, UserPlus, Receipt, CheckCircle2, Loader2,
-  Menu, X,
+  Menu, X, Smartphone, KeyRound, ShieldCheck,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
@@ -106,6 +107,14 @@ export default function HomePage() {
   // Login
   const [loginEmpId, setLoginEmpId] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [loginMethod, setLoginMethod] = useState<'empid' | 'otp'>('otp');
+  const [otpPhone, setOtpPhone] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpVerified, setOtpVerified] = useState(false);
+  const [demoOtp, setDemoOtp] = useState('');
+  const [otpUserName, setOtpUserName] = useState('');
+  const [otpTimer, setOtpTimer] = useState(0);
 
   // Dashboard
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
@@ -243,6 +252,77 @@ export default function HomePage() {
     };
     load();
   }, [user]);
+
+  // OTP Timer countdown
+  useEffect(() => {
+    if (otpTimer > 0) {
+      const t = setTimeout(() => setOtpTimer(otpTimer - 1), 1000);
+      return () => clearTimeout(t);
+    }
+  }, [otpTimer]);
+
+  // ===== OTP LOGIN =====
+  const handleSendOtp = async () => {
+    if (!otpPhone) {
+      toast({ title: 'Error', description: 'Please enter your phone number', variant: 'destructive' });
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const res = await fetch('/api/auth/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: otpPhone }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setOtpSent(true);
+        setOtpTimer(60);
+        setDemoOtp(data.demoOtp);
+        setOtpUserName(data.name);
+        toast({ title: 'OTP Sent!', description: `OTP sent to ${otpPhone}` });
+      } else {
+        toast({ title: 'Error', description: data.error, variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to send OTP', variant: 'destructive' });
+    }
+    setIsLoading(false);
+  };
+
+  const handleVerifyOtp = async () => {
+    if (!otpCode) {
+      toast({ title: 'Error', description: 'Please enter the OTP', variant: 'destructive' });
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const res = await fetch('/api/auth/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: otpPhone, otp: otpCode }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setUser(data);
+        setCurrentView(data.role === 'admin' ? 'dashboard' : 'check-in-out');
+        setOtpVerified(true);
+        toast({ title: 'Welcome!', description: `Hello, ${data.name}` });
+      } else {
+        toast({ title: 'Verification Failed', description: data.error, variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to verify OTP', variant: 'destructive' });
+    }
+    setIsLoading(false);
+  };
+
+  const resetOtpFlow = () => {
+    setOtpSent(false);
+    setOtpCode('');
+    setDemoOtp('');
+    setOtpTimer(0);
+  };
 
   // ===== CAMERA =====
   const startCamera = async () => {
@@ -529,6 +609,15 @@ export default function HomePage() {
     setCameraActive(false);
     setCapturedPhoto(null);
     setCurrentLocation(null);
+    setCheckInFlow(false);
+    setCheckOutFlow(false);
+    setOtpSent(false);
+    setOtpCode('');
+    setDemoOtp('');
+    setOtpTimer(0);
+    setOtpPhone('');
+    setLoginEmpId('');
+    setLoginPassword('');
     stopCamera();
   };
 
@@ -552,43 +641,144 @@ export default function HomePage() {
               Face Recognition Attendance & Payroll System
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="empId">Employee ID</Label>
-              <Input
-                id="empId"
-                placeholder="e.g. ADMIN001 or EMP001"
-                value={loginEmpId}
-                onChange={e => setLoginEmpId(e.target.value)}
-                className="h-11"
-                onKeyDown={e => e.key === 'Enter' && handleLogin()}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="Enter password"
-                value={loginPassword}
-                onChange={e => setLoginPassword(e.target.value)}
-                className="h-11"
-                onKeyDown={e => e.key === 'Enter' && handleLogin()}
-              />
-            </div>
-            <Button
-              onClick={handleLogin}
-              className="w-full h-11 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg"
-              disabled={isLoading}
-            >
-              {isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ArrowRight className="w-4 h-4 mr-2" />}
-              Sign In
-            </Button>
+          <CardContent>
+            <Tabs value={loginMethod} onValueChange={v => { setLoginMethod(v as 'empid' | 'otp'); resetOtpFlow(); }} className="w-full">
+              <TabsList className="grid w-full grid-cols-2 mb-4">
+                <TabsTrigger value="otp" className="flex items-center gap-1.5 text-sm">
+                  <Smartphone className="w-4 h-4" /> Phone + OTP
+                </TabsTrigger>
+                <TabsTrigger value="empid" className="flex items-center gap-1.5 text-sm">
+                  <KeyRound className="w-4 h-4" /> Emp ID
+                </TabsTrigger>
+              </TabsList>
+
+              {/* ===== OTP LOGIN TAB ===== */}
+              <TabsContent value="otp" className="space-y-4 mt-0">
+                {!otpSent ? (
+                  /* Step 1: Enter Phone */
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="otpPhone">Phone Number</Label>
+                      <div className="relative">
+                        <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input
+                          id="otpPhone"
+                          placeholder="+91-9876543210"
+                          value={otpPhone}
+                          onChange={e => setOtpPhone(e.target.value)}
+                          className="h-11 pl-10"
+                          onKeyDown={e => e.key === 'Enter' && handleSendOtp()}
+                        />
+                      </div>
+                    </div>
+                    <Button
+                      onClick={handleSendOtp}
+                      className="w-full h-11 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg"
+                      disabled={isLoading}
+                    >
+                      {isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
+                      Send OTP
+                    </Button>
+                  </div>
+                ) : (
+                  /* Step 2: Enter OTP */
+                  <div className="space-y-4">
+                    <div className="p-3 bg-emerald-50 rounded-lg text-center">
+                      <p className="text-sm text-emerald-800">OTP sent to <span className="font-bold">{otpPhone}</span></p>
+                      {otpUserName && <p className="text-xs text-emerald-600 mt-1">Account: {otpUserName}</p>}
+                    </div>
+
+                    {/* Demo OTP Banner */}
+                    {demoOtp && (
+                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-center">
+                        <p className="text-xs text-amber-700 font-medium">🔑 Demo Mode - Your OTP:</p>
+                        <p className="text-2xl font-bold text-amber-800 tracking-[0.3em] mt-1">{demoOtp}</p>
+                        <p className="text-[10px] text-amber-600 mt-1">In production, OTP will be sent via SMS</p>
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <Label htmlFor="otpCode">Enter 6-digit OTP</Label>
+                      <Input
+                        id="otpCode"
+                        placeholder="000000"
+                        value={otpCode}
+                        onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        className="h-14 text-center text-2xl tracking-[0.5em] font-mono"
+                        maxLength={6}
+                        onKeyDown={e => e.key === 'Enter' && otpCode.length === 6 && handleVerifyOtp()}
+                      />
+                    </div>
+
+                    <Button
+                      onClick={handleVerifyOtp}
+                      className="w-full h-11 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg"
+                      disabled={isLoading || otpCode.length !== 6}
+                    >
+                      {isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
+                      Verify & Login
+                    </Button>
+
+                    <div className="flex items-center justify-between text-sm">
+                      <Button variant="ghost" size="sm" onClick={resetOtpFlow} className="text-muted-foreground">
+                        Change Number
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleSendOtp}
+                        disabled={otpTimer > 0}
+                        className="text-emerald-600"
+                      >
+                        {otpTimer > 0 ? `Resend in ${otpTimer}s` : 'Resend OTP'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* ===== EMP ID LOGIN TAB ===== */}
+              <TabsContent value="empid" className="space-y-4 mt-0">
+                <div className="space-y-2">
+                  <Label htmlFor="empId">Employee ID</Label>
+                  <Input
+                    id="empId"
+                    placeholder="e.g. ADMIN001 or EMP001"
+                    value={loginEmpId}
+                    onChange={e => setLoginEmpId(e.target.value)}
+                    className="h-11"
+                    onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="Enter password"
+                    value={loginPassword}
+                    onChange={e => setLoginPassword(e.target.value)}
+                    className="h-11"
+                    onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                  />
+                </div>
+                <Button
+                  onClick={handleLogin}
+                  className="w-full h-11 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg"
+                  disabled={isLoading}
+                >
+                  {isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ArrowRight className="w-4 h-4 mr-2" />}
+                  Sign In
+                </Button>
+              </TabsContent>
+            </Tabs>
+
             <div className="mt-4 p-3 bg-muted/50 rounded-lg">
               <p className="text-xs text-muted-foreground font-medium mb-2">Demo Credentials:</p>
               <div className="text-xs text-muted-foreground space-y-1">
-                <p><span className="font-medium">Admin:</span> ADMIN001 / admin123</p>
-                <p><span className="font-medium">Employee:</span> EMP001 / emp123</p>
+                <p><span className="font-medium">📱 OTP Login:</span> +91-9876543211 (Rahul)</p>
+                <p><span className="font-medium">🔑 Emp ID:</span> ADMIN001 / admin123</p>
+                <p><span className="font-medium">🔑 Emp ID:</span> EMP001 / emp123</p>
               </div>
             </div>
           </CardContent>
