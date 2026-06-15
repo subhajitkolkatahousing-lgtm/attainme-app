@@ -318,11 +318,47 @@ export default function HomePage() {
     }
   };
 
-  // ===== CHECK IN/OUT =====
+  // ===== CHECK IN/OUT FLOW STATE =====
+  const [checkInFlow, setCheckInFlow] = useState(false);  // true = camera+location opened for check-in
+  const [checkOutFlow, setCheckOutFlow] = useState(false); // true = camera+location opened for check-out
+
+  // Start the check-in flow: auto open camera + get location
+  const startCheckInFlow = () => {
+    if (!user) return;
+    if (todayStatus.checkedIn) {
+      toast({ title: 'Already Checked In', description: 'You have already checked in today', variant: 'destructive' });
+      return;
+    }
+    setCheckInFlow(true);
+    setCheckOutFlow(false);
+    setCapturedPhoto(null);
+    startCamera();
+    if (!currentLocation) getLocation();
+  };
+
+  // Start the check-out flow: auto open camera + get location
+  const startCheckOutFlow = () => {
+    if (!user) return;
+    if (!todayStatus.checkedIn) {
+      toast({ title: 'Not Checked In', description: 'Please check in first before checking out', variant: 'destructive' });
+      return;
+    }
+    if (todayStatus.checkedOut) {
+      toast({ title: 'Already Checked Out', description: 'You have already checked out today', variant: 'destructive' });
+      return;
+    }
+    setCheckOutFlow(true);
+    setCheckInFlow(false);
+    setCapturedPhoto(null);
+    startCamera();
+    if (!currentLocation) getLocation();
+  };
+
+  // Submit check-in (after photo captured)
   const handleCheckIn = async () => {
     if (!user) return;
     if (!capturedPhoto) {
-      toast({ title: 'Photo Required', description: 'Please capture your face photo before checking in', variant: 'destructive' });
+      toast({ title: 'Photo Required', description: 'Please capture your face photo first', variant: 'destructive' });
       return;
     }
     setIsLoading(true);
@@ -343,6 +379,7 @@ export default function HomePage() {
         toast({ title: 'Checked In!', description: `Successfully checked in at ${formatTime(data.checkIn)}` });
         setTodayStatus({ checkedIn: true, checkedOut: false, attendance: data });
         setCapturedPhoto(null);
+        setCheckInFlow(false);
       } else {
         toast({ title: 'Check-in Failed', description: data.error, variant: 'destructive' });
       }
@@ -352,10 +389,11 @@ export default function HomePage() {
     setIsLoading(false);
   };
 
+  // Submit check-out (after photo captured)
   const handleCheckOut = async () => {
     if (!user) return;
     if (!capturedPhoto) {
-      toast({ title: 'Photo Required', description: 'Please capture your face photo before checking out', variant: 'destructive' });
+      toast({ title: 'Photo Required', description: 'Please capture your face photo first', variant: 'destructive' });
       return;
     }
     setIsLoading(true);
@@ -376,6 +414,7 @@ export default function HomePage() {
         toast({ title: 'Checked Out!', description: `Work hours: ${data.workHours?.toFixed(2)} hrs` });
         setTodayStatus({ checkedIn: true, checkedOut: true, attendance: data });
         setCapturedPhoto(null);
+        setCheckOutFlow(false);
         fetchAttendanceHistory(user.id);
       } else {
         toast({ title: 'Check-out Failed', description: data.error, variant: 'destructive' });
@@ -384,6 +423,14 @@ export default function HomePage() {
       toast({ title: 'Error', description: 'Failed to check out', variant: 'destructive' });
     }
     setIsLoading(false);
+  };
+
+  // Cancel the flow
+  const cancelFlow = () => {
+    setCheckInFlow(false);
+    setCheckOutFlow(false);
+    setCapturedPhoto(null);
+    stopCamera();
   };
 
   // ===== ADD EMPLOYEE =====
@@ -1119,6 +1166,7 @@ export default function HomePage() {
           {/* ===== EMPLOYEE: CHECK IN/OUT ===== */}
           {currentView === 'check-in-out' && !isAdmin && (
             <div className="space-y-6 max-w-2xl mx-auto">
+              {/* Status Banner */}
               <Card className={`border-0 shadow-sm ${todayStatus.checkedOut ? 'bg-gradient-to-r from-slate-50 to-slate-100' : todayStatus.checkedIn ? 'bg-gradient-to-r from-amber-50 to-amber-100/50' : 'bg-gradient-to-r from-emerald-50 to-teal-100/50'}`}>
                 <CardContent className="p-5">
                   <div className="flex items-center gap-4">
@@ -1134,113 +1182,197 @@ export default function HomePage() {
                           ? `Work hours: ${todayStatus.attendance?.workHours?.toFixed(2)} hrs`
                           : todayStatus.checkedIn
                           ? `Since ${formatTime(todayStatus.attendance?.checkIn || null)}`
-                          : 'Capture your face and check in'}
+                          : 'Click Check In to open camera & capture location'}
                       </p>
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
-              <Card className="border-0 shadow-sm">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Camera className="w-5 h-5 text-emerald-600" /> Face Verification
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="relative bg-gray-900 rounded-xl overflow-hidden aspect-square max-w-sm mx-auto">
-                      {!cameraActive && !capturedPhoto && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
-                          <Camera className="w-12 h-12 mb-2" />
-                          <p className="text-sm">Camera Off</p>
-                        </div>
-                      )}
-                      {cameraActive && (
-                        <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-                      )}
-                      {capturedPhoto && (
-                        <img src={capturedPhoto} alt="Captured" className="w-full h-full object-cover" />
-                      )}
-                      {cameraActive && (
-                        <div className="absolute inset-0 border-4 border-emerald-400/50 rounded-xl pointer-events-none">
-                          <div className="absolute top-4 left-4 w-8 h-8 border-t-2 border-l-2 border-emerald-400" />
-                          <div className="absolute top-4 right-4 w-8 h-8 border-t-2 border-r-2 border-emerald-400" />
-                          <div className="absolute bottom-4 left-4 w-8 h-8 border-b-2 border-l-2 border-emerald-400" />
-                          <div className="absolute bottom-4 right-4 w-8 h-8 border-b-2 border-r-2 border-emerald-400" />
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex gap-2 justify-center">
-                      {!cameraActive && !capturedPhoto && (
-                        <Button onClick={startCamera} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-                          <Camera className="w-4 h-4 mr-2" /> Start Camera
-                        </Button>
-                      )}
-                      {cameraActive && (
-                        <Button onClick={capturePhoto} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-                          <Camera className="w-4 h-4 mr-2" /> Capture Photo
-                        </Button>
-                      )}
-                      {capturedPhoto && (
-                        <Button variant="outline" onClick={retakePhoto}>Retake Photo</Button>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+              {/* ===== CHECK IN/OUT BUTTONS (initial state - no flow active) ===== */}
+              {!checkInFlow && !checkOutFlow && !todayStatus.checkedOut && (
+                <div className="grid grid-cols-2 gap-4">
+                  <Button
+                    onClick={startCheckInFlow}
+                    disabled={isLoading || todayStatus.checkedIn}
+                    className="h-16 text-lg bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50 shadow-lg"
+                  >
+                    {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <UserCheck className="w-6 h-6 mr-2" />}
+                    Check In
+                  </Button>
+                  <Button
+                    onClick={startCheckOutFlow}
+                    disabled={isLoading || !todayStatus.checkedIn || todayStatus.checkedOut}
+                    className="h-16 text-lg bg-red-500 hover:bg-red-600 text-white disabled:opacity-50 shadow-lg"
+                  >
+                    {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <UserX className="w-6 h-6 mr-2" />}
+                    Check Out
+                  </Button>
+                </div>
+              )}
 
-              <Card className="border-0 shadow-sm">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <MapPin className="w-5 h-5 text-emerald-600" /> Live Location
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {currentLocation ? (
-                      <div className="p-3 bg-emerald-50 rounded-lg">
-                        <div className="flex items-start gap-2">
-                          <MapPin className="w-4 h-4 text-emerald-600 mt-0.5 flex-shrink-0" />
-                          <div>
-                            <p className="text-sm font-medium text-emerald-800">Location Captured</p>
-                            <p className="text-xs text-emerald-600 mt-1">{currentLocation.address}</p>
-                            <p className="text-xs text-emerald-500 mt-1">
-                              Lat: {currentLocation.lat.toFixed(6)}, Lng: {currentLocation.lng.toFixed(6)}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">No location captured yet</p>
-                    )}
-                    <Button variant="outline" onClick={getLocation} disabled={locationLoading} className="w-full">
-                      {locationLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <MapPin className="w-4 h-4 mr-2" />}
-                      {currentLocation ? 'Update Location' : 'Get Location'}
+              {/* ===== ACTIVE FLOW: Camera + Location ===== */}
+              {(checkInFlow || checkOutFlow) && (
+                <div className="space-y-4">
+                  {/* Flow header */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Badge className={checkInFlow ? 'bg-emerald-100 text-emerald-700 text-sm px-3 py-1' : 'bg-red-100 text-red-700 text-sm px-3 py-1'}>
+                        {checkInFlow ? <UserCheck className="w-4 h-4 mr-1" /> : <UserX className="w-4 h-4 mr-1" />}
+                        {checkInFlow ? 'Checking In...' : 'Checking Out...'}
+                      </Badge>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={cancelFlow} className="text-muted-foreground hover:text-red-500">
+                      <X className="w-4 h-4 mr-1" /> Cancel
                     </Button>
                   </div>
-                </CardContent>
-              </Card>
 
-              <div className="grid grid-cols-2 gap-4">
-                <Button
-                  onClick={handleCheckIn}
-                  disabled={isLoading || todayStatus.checkedIn || !capturedPhoto}
-                  className="h-14 text-base bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50"
-                >
-                  {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <UserCheck className="w-5 h-5 mr-2" />}
-                  Check In
-                </Button>
-                <Button
-                  onClick={handleCheckOut}
-                  disabled={isLoading || !todayStatus.checkedIn || todayStatus.checkedOut || !capturedPhoto}
-                  className="h-14 text-base bg-red-500 hover:bg-red-600 text-white disabled:opacity-50"
-                >
-                  {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <UserX className="w-5 h-5 mr-2" />}
-                  Check Out
-                </Button>
-              </div>
+                  {/* Step 1: Camera */}
+                  <Card className="border-0 shadow-sm border-l-4 border-l-emerald-500">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Camera className="w-5 h-5 text-emerald-600" />
+                        Step 1: Capture Your Face
+                        {capturedPhoto && <CheckCircle2 className="w-5 h-5 text-emerald-500 ml-auto" />}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        <div className="relative bg-gray-900 rounded-xl overflow-hidden aspect-square max-w-sm mx-auto">
+                          {!cameraActive && !capturedPhoto && (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
+                              <Camera className="w-12 h-12 mb-2" />
+                              <p className="text-sm">Opening camera...</p>
+                              <Loader2 className="w-6 h-6 animate-spin mt-2" />
+                            </div>
+                          )}
+                          {cameraActive && (
+                            <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+                          )}
+                          {capturedPhoto && (
+                            <img src={capturedPhoto} alt="Captured" className="w-full h-full object-cover" />
+                          )}
+                          {cameraActive && (
+                            <div className="absolute inset-0 border-4 border-emerald-400/50 rounded-xl pointer-events-none">
+                              <div className="absolute top-4 left-4 w-8 h-8 border-t-2 border-l-2 border-emerald-400" />
+                              <div className="absolute top-4 right-4 w-8 h-8 border-t-2 border-r-2 border-emerald-400" />
+                              <div className="absolute bottom-4 left-4 w-8 h-8 border-b-2 border-l-2 border-emerald-400" />
+                              <div className="absolute bottom-4 right-4 w-8 h-8 border-b-2 border-r-2 border-emerald-400" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-2 justify-center">
+                          {cameraActive && (
+                            <Button onClick={capturePhoto} size="lg" className="bg-emerald-600 hover:bg-emerald-700 text-white px-8">
+                              <Camera className="w-5 h-5 mr-2" /> Capture Photo
+                            </Button>
+                          )}
+                          {capturedPhoto && (
+                            <Button variant="outline" onClick={retakePhoto} size="lg">
+                              Retake Photo
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
 
+                  {/* Step 2: Location */}
+                  <Card className="border-0 shadow-sm border-l-4 border-l-teal-500">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <MapPin className="w-5 h-5 text-teal-600" />
+                        Step 2: Live Location
+                        {currentLocation && <CheckCircle2 className="w-5 h-5 text-teal-500 ml-auto" />}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        {locationLoading && !currentLocation && (
+                          <div className="p-4 bg-teal-50 rounded-lg flex items-center gap-3">
+                            <Loader2 className="w-5 h-5 text-teal-600 animate-spin" />
+                            <div>
+                              <p className="text-sm font-medium text-teal-800">Fetching your location...</p>
+                              <p className="text-xs text-teal-600">Please allow location access</p>
+                            </div>
+                          </div>
+                        )}
+                        {currentLocation && (
+                          <div className="p-3 bg-teal-50 rounded-lg">
+                            <div className="flex items-start gap-2">
+                              <MapPin className="w-4 h-4 text-teal-600 mt-0.5 flex-shrink-0" />
+                              <div>
+                                <p className="text-sm font-medium text-teal-800">Location Captured</p>
+                                <p className="text-xs text-teal-600 mt-1">{currentLocation.address}</p>
+                                <p className="text-xs text-teal-500 mt-1">
+                                  Lat: {currentLocation.lat.toFixed(6)}, Lng: {currentLocation.lng.toFixed(6)}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        {!locationLoading && !currentLocation && (
+                          <p className="text-sm text-muted-foreground">Getting location automatically...</p>
+                        )}
+                        <Button variant="outline" onClick={getLocation} disabled={locationLoading} className="w-full">
+                          {locationLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <MapPin className="w-4 h-4 mr-2" />}
+                          {currentLocation ? 'Refresh Location' : 'Retry Location'}
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Step 3: Confirm */}
+                  <Card className="border-0 shadow-sm border-l-4 border-l-emerald-600">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Fingerprint className="w-5 h-5 text-emerald-600" />
+                        Step 3: Confirm {checkInFlow ? 'Check In' : 'Check Out'}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        {/* Checklist */}
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-sm">
+                            {capturedPhoto ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <div className="w-4 h-4 rounded-full border-2 border-gray-300" />}
+                            <span className={capturedPhoto ? 'text-emerald-700' : 'text-muted-foreground'}>Face photo captured</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-sm">
+                            {currentLocation ? <CheckCircle2 className="w-4 h-4 text-teal-500" /> : <div className="w-4 h-4 rounded-full border-2 border-gray-300" />}
+                            <span className={currentLocation ? 'text-teal-700' : 'text-muted-foreground'}>Location captured</span>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <Button
+                            onClick={checkInFlow ? handleCheckIn : handleCheckOut}
+                            disabled={isLoading || !capturedPhoto}
+                            className={`h-14 text-base text-white shadow-lg disabled:opacity-50 ${checkInFlow ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-500 hover:bg-red-600'}`}
+                          >
+                            {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : checkInFlow ? <UserCheck className="w-5 h-5 mr-2" /> : <UserX className="w-5 h-5 mr-2" />}
+                            Confirm {checkInFlow ? 'Check In' : 'Check Out'}
+                          </Button>
+                          <Button variant="outline" onClick={cancelFlow} className="h-14 text-base">
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Already checked out - show completed state */}
+              {todayStatus.checkedOut && (
+                <div className="text-center py-4">
+                  <CheckCircle2 className="w-16 h-16 mx-auto text-emerald-400 mb-3" />
+                  <h3 className="text-xl font-semibold text-emerald-700">Today Complete!</h3>
+                  <p className="text-muted-foreground mt-1">You have successfully checked out for today</p>
+                </div>
+              )}
+
+              {/* Today's Record */}
               {todayStatus.attendance && (
                 <Card className="border-0 shadow-sm">
                   <CardHeader className="pb-3">
