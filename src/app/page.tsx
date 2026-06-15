@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '@/store/app-store';
 import {
-  Card, CardContent, CardDescription, CardHeader, CardTitle,
+  Card, CardContent, CardHeader, CardTitle,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,7 +25,8 @@ import {
   Camera, MapPin, Clock, Users, LogOut,
   UserCheck, UserX, Fingerprint, ArrowRight, Timer, Home,
   Wallet, UserPlus, Receipt, CheckCircle2, Loader2,
-  Menu, X, Smartphone, KeyRound, ShieldCheck, Mail,
+  Smartphone, KeyRound, ShieldCheck, Mail,
+  ChevronLeft, XCircle, Eye,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
@@ -99,7 +100,7 @@ const CHART_COLORS = ['#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#f
 
 // ========== MAIN PAGE ==========
 export default function HomePage() {
-  const { user, setUser, currentView, setCurrentView, sidebarOpen, setSidebarOpen } = useAppStore();
+  const { user, setUser, currentView, setCurrentView } = useAppStore();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [seeded, setSeeded] = useState(false);
@@ -127,11 +128,13 @@ export default function HomePage() {
   const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);
   const [allAttendance, setAllAttendance] = useState<AttendanceRecord[]>([]);
 
-  // Camera
+  // Camera - FIX: Always render video/canvas refs
   const [cameraActive, setCameraActive] = useState(false);
+  const [cameraLoading, setCameraLoading] = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   // Location
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number; address: string } | null>(null);
@@ -150,67 +153,21 @@ export default function HomePage() {
   const [payrollYear, setPayrollYear] = useState(new Date().getFullYear());
   const [generatingPayroll, setGeneratingPayroll] = useState(false);
 
-  // ===== API FUNCTIONS (useCallback) =====
-  const fetchDashboard = useCallback(async () => {
-    try {
-      const res = await fetch('/api/dashboard');
-      const data = await res.json();
-      if (res.ok) setDashboardStats(data);
-    } catch (e) { console.error(e); }
-  }, []);
+  // Check In/Out Flow
+  const [checkInFlow, setCheckInFlow] = useState(false);
+  const [checkOutFlow, setCheckOutFlow] = useState(false);
 
-  const fetchTodayStatus = useCallback(async (userId: string) => {
-    try {
-      const res = await fetch(`/api/attendance/today?employeeId=${userId}`);
-      const data = await res.json();
-      if (res.ok) setTodayStatus(data);
-    } catch (e) { console.error(e); }
-  }, []);
-
-  const fetchAttendanceHistory = useCallback(async (userId: string) => {
-    try {
-      const res = await fetch(`/api/attendance/history?employeeId=${userId}`);
-      const data = await res.json();
-      if (res.ok) setAttendanceHistory(data);
-    } catch (e) { console.error(e); }
-  }, []);
-
-  const fetchAllAttendance = useCallback(async () => {
-    try {
-      const res = await fetch('/api/attendance/history?employeeId=all');
-      const data = await res.json();
-      if (res.ok) setAllAttendance(data);
-    } catch (e) { console.error(e); }
-  }, []);
-
-  const fetchEmployees = useCallback(async () => {
-    try {
-      const res = await fetch('/api/employees');
-      const data = await res.json();
-      if (res.ok) setEmployees(data);
-    } catch (e) { console.error(e); }
-  }, []);
-
-  const fetchPayroll = useCallback(async (employeeId?: string) => {
-    try {
-      const url = employeeId ? `/api/payroll?employeeId=${employeeId}` : '/api/payroll';
-      const res = await fetch(url);
-      const data = await res.json();
-      if (res.ok) setPayrollRecords(data);
-    } catch (e) { console.error(e); }
-  }, []);
-
-  // ===== EFFECTS =====
+  // ===== SEED =====
   useEffect(() => {
     if (!seeded) {
       fetch('/api/auth/seed', { method: 'POST' }).then(() => setSeeded(true)).catch(() => setSeeded(true));
     }
   }, [seeded]);
 
+  // ===== LOAD DATA ON LOGIN =====
   useEffect(() => {
     if (!user) return;
     const load = async () => {
-      // Fetch today's status
       try {
         const res = await fetch(`/api/attendance/today?employeeId=${user.id}`);
         const data = await res.json();
@@ -262,10 +219,18 @@ export default function HomePage() {
     }
   }, [otpTimer]);
 
+  // Cleanup camera on unmount
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+      }
+    };
+  }, []);
+
   // ===== OTP LOGIN =====
   const handleSendOtp = async () => {
     if (loginMethod === 'email-otp') {
-      // Email OTP
       if (!otpEmail) {
         toast({ title: 'Error', description: 'Please enter your email address', variant: 'destructive' });
         return;
@@ -292,7 +257,6 @@ export default function HomePage() {
       }
       setIsLoading(false);
     } else {
-      // Phone OTP
       if (!otpPhone) {
         toast({ title: 'Error', description: 'Please enter your phone number', variant: 'destructive' });
         return;
@@ -362,38 +326,85 @@ export default function HomePage() {
     setOtpUserName('');
   };
 
-  // ===== CAMERA =====
+  // ===== CAMERA - FIXED =====
   const startCamera = async () => {
+    setCameraLoading(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: 480, height: 480 },
-      });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        setCameraActive(true);
+      // Stop any existing stream first
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
       }
-    } catch {
-      toast({ title: 'Camera Error', description: 'Unable to access camera. Please allow camera permission.', variant: 'destructive' });
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } },
+        audio: false,
+      });
+
+      streamRef.current = stream;
+
+      // Wait for video element to be ready
+      const video = videoRef.current;
+      if (video) {
+        video.srcObject = stream;
+        // Wait for video to load metadata before playing
+        await new Promise<void>((resolve) => {
+          video.onloadedmetadata = () => {
+            video.play();
+            resolve();
+          };
+        });
+        setCameraActive(true);
+        setCameraLoading(false);
+      } else {
+        // Video ref not ready yet, try again after a short delay
+        setTimeout(async () => {
+          const v = videoRef.current;
+          if (v) {
+            v.srcObject = stream;
+            await new Promise<void>((resolve) => {
+              v.onloadedmetadata = () => {
+                v.play();
+                resolve();
+              };
+            });
+          }
+          setCameraActive(true);
+          setCameraLoading(false);
+        }, 100);
+      }
+    } catch (err) {
+      console.error('Camera error:', err);
+      setCameraLoading(false);
+      toast({ title: 'Camera Error', description: 'Unable to access camera. Please allow camera permission and try again.', variant: 'destructive' });
     }
   };
 
   const stopCamera = () => {
-    if (videoRef.current?.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach(t => t.stop());
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
     setCameraActive(false);
+    setCameraLoading(false);
   };
 
   const capturePhoto = () => {
     if (!videoRef.current || !canvasRef.current) return;
     const canvas = canvasRef.current;
+    const video = videoRef.current;
     canvas.width = 320;
     canvas.height = 320;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.drawImage(videoRef.current, 0, 0, 320, 320);
+    // Center crop the video
+    const size = Math.min(video.videoWidth, video.videoHeight);
+    const sx = (video.videoWidth - size) / 2;
+    const sy = (video.videoHeight - size) / 2;
+    ctx.drawImage(video, sx, sy, size, size, 0, 0, 320, 320);
     const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
     setCapturedPhoto(dataUrl);
     stopCamera();
@@ -429,18 +440,14 @@ export default function HomePage() {
           toast({ title: 'Location Error', description: 'Unable to get location. Please allow location permission.', variant: 'destructive' });
           setLocationLoading(false);
         },
-        { enableHighAccuracy: true, timeout: 10000 }
+        { enableHighAccuracy: true, timeout: 15000 }
       );
     } catch {
       setLocationLoading(false);
     }
   };
 
-  // ===== CHECK IN/OUT FLOW STATE =====
-  const [checkInFlow, setCheckInFlow] = useState(false);  // true = camera+location opened for check-in
-  const [checkOutFlow, setCheckOutFlow] = useState(false); // true = camera+location opened for check-out
-
-  // Start the check-in flow: auto open camera + get location
+  // ===== CHECK IN/OUT FLOW =====
   const startCheckInFlow = () => {
     if (!user) return;
     if (todayStatus.checkedIn) {
@@ -451,10 +458,9 @@ export default function HomePage() {
     setCheckOutFlow(false);
     setCapturedPhoto(null);
     startCamera();
-    if (!currentLocation) getLocation();
+    getLocation();
   };
 
-  // Start the check-out flow: auto open camera + get location
   const startCheckOutFlow = () => {
     if (!user) return;
     if (!todayStatus.checkedIn) {
@@ -469,10 +475,9 @@ export default function HomePage() {
     setCheckInFlow(false);
     setCapturedPhoto(null);
     startCamera();
-    if (!currentLocation) getLocation();
+    getLocation();
   };
 
-  // Submit check-in (after photo captured)
   const handleCheckIn = async () => {
     if (!user) return;
     if (!capturedPhoto) {
@@ -507,7 +512,6 @@ export default function HomePage() {
     setIsLoading(false);
   };
 
-  // Submit check-out (after photo captured)
   const handleCheckOut = async () => {
     if (!user) return;
     if (!capturedPhoto) {
@@ -533,7 +537,11 @@ export default function HomePage() {
         setTodayStatus({ checkedIn: true, checkedOut: true, attendance: data });
         setCapturedPhoto(null);
         setCheckOutFlow(false);
-        fetchAttendanceHistory(user.id);
+        try {
+          const res2 = await fetch(`/api/attendance/history?employeeId=${user.id}`);
+          const data2 = await res2.json();
+          if (res2.ok) setAttendanceHistory(data2);
+        } catch {}
       } else {
         toast({ title: 'Check-out Failed', description: data.error, variant: 'destructive' });
       }
@@ -543,7 +551,6 @@ export default function HomePage() {
     setIsLoading(false);
   };
 
-  // Cancel the flow
   const cancelFlow = () => {
     setCheckInFlow(false);
     setCheckOutFlow(false);
@@ -564,7 +571,11 @@ export default function HomePage() {
         toast({ title: 'Success', description: `${data.name} added successfully` });
         setShowAddEmployee(false);
         setNewEmployee({ empId: '', name: '', email: '', phone: '', department: '', position: '', salary: '', role: 'employee', password: '' });
-        fetchEmployees();
+        try {
+          const res2 = await fetch('/api/employees');
+          const data2 = await res2.json();
+          if (res2.ok) setEmployees(data2);
+        } catch {}
       } else {
         toast({ title: 'Error', description: data.error, variant: 'destructive' });
       }
@@ -585,8 +596,16 @@ export default function HomePage() {
       const data = await res.json();
       if (res.ok) {
         toast({ title: 'Payroll Generated', description: data.message });
-        fetchPayroll();
-        fetchDashboard();
+        try {
+          const res2 = await fetch('/api/payroll');
+          const data2 = await res2.json();
+          if (res2.ok) setPayrollRecords(data2);
+        } catch {}
+        try {
+          const res2 = await fetch('/api/dashboard');
+          const data2 = await res2.json();
+          if (res2.ok) setDashboardStats(data2);
+        } catch {}
       } else {
         toast({ title: 'Error', description: data.error, variant: 'destructive' });
       }
@@ -606,8 +625,16 @@ export default function HomePage() {
       });
       if (res.ok) {
         toast({ title: 'Success', description: 'Marked as paid' });
-        fetchPayroll();
-        fetchDashboard();
+        try {
+          const res2 = await fetch('/api/payroll');
+          const data2 = await res2.json();
+          if (res2.ok) setPayrollRecords(data2);
+        } catch {}
+        try {
+          const res2 = await fetch('/api/dashboard');
+          const data2 = await res2.json();
+          if (res2.ok) setDashboardStats(data2);
+        } catch {}
       }
     } catch {
       toast({ title: 'Error', description: 'Failed to mark as paid', variant: 'destructive' });
@@ -645,6 +672,7 @@ export default function HomePage() {
     setUser(null);
     setCurrentView('check-in-out');
     setCameraActive(false);
+    setCameraLoading(false);
     setCapturedPhoto(null);
     setCurrentLocation(null);
     setCheckInFlow(false);
@@ -663,524 +691,475 @@ export default function HomePage() {
   // ========== LOGIN SCREEN ==========
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-emerald-950 to-slate-900 p-4">
-        <div className="absolute inset-0 overflow-hidden">
-          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl" />
-          <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-teal-500/10 rounded-full blur-3xl" />
-        </div>
-        <Card className="w-full max-w-md relative backdrop-blur-sm bg-white/95 shadow-2xl border-0">
-          <CardHeader className="text-center pb-2">
-            <div className="mx-auto w-16 h-16 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg">
-              <Fingerprint className="w-9 h-9 text-white" />
-            </div>
-            <CardTitle className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
-              FaceAttend
-            </CardTitle>
-            <CardDescription className="text-muted-foreground">
-              Face Recognition Attendance & Payroll System
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Tabs value={loginMethod} onValueChange={v => { setLoginMethod(v as 'email-otp' | 'otp' | 'empid'); resetOtpFlow(); }} className="w-full">
-              <TabsList className="grid w-full grid-cols-3 mb-4">
-                <TabsTrigger value="email-otp" className="flex items-center gap-1 text-xs sm:text-sm">
-                  <Mail className="w-3.5 h-3.5" /> Email
-                </TabsTrigger>
-                <TabsTrigger value="otp" className="flex items-center gap-1 text-xs sm:text-sm">
-                  <Smartphone className="w-3.5 h-3.5" /> Phone
-                </TabsTrigger>
-                <TabsTrigger value="empid" className="flex items-center gap-1 text-xs sm:text-sm">
-                  <KeyRound className="w-3.5 h-3.5" /> Emp ID
-                </TabsTrigger>
-              </TabsList>
-
-              {/* ===== EMAIL OTP LOGIN TAB ===== */}
-              <TabsContent value="email-otp" className="space-y-4 mt-0">
-                {!otpSent ? (
-                  <div className="space-y-4">
-                    <div className="p-3 bg-emerald-50 rounded-lg flex items-start gap-2">
-                      <Mail className="w-4 h-4 text-emerald-600 mt-0.5 flex-shrink-0" />
-                      <div>
-                        <p className="text-xs font-medium text-emerald-800">Free Email OTP Login</p>
-                        <p className="text-[10px] text-emerald-600 mt-0.5">No SMS charges! OTP sent to your email</p>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="otpEmail">Email Address</Label>
-                      <div className="relative">
-                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                        <Input
-                          id="otpEmail"
-                          type="email"
-                          placeholder="rahul@company.com"
-                          value={otpEmail}
-                          onChange={e => setOtpEmail(e.target.value)}
-                          className="h-11 pl-10"
-                          onKeyDown={e => e.key === 'Enter' && handleSendOtp()}
-                        />
-                      </div>
-                    </div>
-                    <Button
-                      onClick={handleSendOtp}
-                      className="w-full h-11 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg"
-                      disabled={isLoading}
-                    >
-                      {isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
-                      Send OTP to Email
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="p-3 bg-emerald-50 rounded-lg text-center">
-                      <p className="text-sm text-emerald-800">OTP sent to <span className="font-bold">{otpEmail}</span></p>
-                      {otpUserName && <p className="text-xs text-emerald-600 mt-1">Account: {otpUserName}</p>}
-                    </div>
-
-                    {demoOtp && (
-                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-center">
-                        <p className="text-xs text-amber-700 font-medium">Demo Mode - Your OTP:</p>
-                        <p className="text-2xl font-bold text-amber-800 tracking-[0.3em] mt-1">{demoOtp}</p>
-                        <p className="text-[10px] text-amber-600 mt-1">In production, OTP will be sent to your email</p>
-                      </div>
-                    )}
-
-                    <div className="space-y-2">
-                      <Label htmlFor="emailOtpCode">Enter 6-digit OTP</Label>
-                      <Input
-                        id="emailOtpCode"
-                        placeholder="000000"
-                        value={otpCode}
-                        onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                        className="h-14 text-center text-2xl tracking-[0.5em] font-mono"
-                        maxLength={6}
-                        onKeyDown={e => e.key === 'Enter' && otpCode.length === 6 && handleVerifyOtp()}
-                      />
-                    </div>
-
-                    <Button
-                      onClick={handleVerifyOtp}
-                      className="w-full h-11 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg"
-                      disabled={isLoading || otpCode.length !== 6}
-                    >
-                      {isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
-                      Verify & Login
-                    </Button>
-
-                    <div className="flex items-center justify-between text-sm">
-                      <Button variant="ghost" size="sm" onClick={resetOtpFlow} className="text-muted-foreground">
-                        Change Email
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleSendOtp}
-                        disabled={otpTimer > 0}
-                        className="text-emerald-600"
-                      >
-                        {otpTimer > 0 ? `Resend in ${otpTimer}s` : 'Resend OTP'}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </TabsContent>
-
-              {/* ===== PHONE OTP LOGIN TAB ===== */}
-              <TabsContent value="otp" className="space-y-4 mt-0">
-                {!otpSent ? (
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="otpPhone">Phone Number</Label>
-                      <div className="relative">
-                        <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                        <Input
-                          id="otpPhone"
-                          placeholder="+91-9876543210"
-                          value={otpPhone}
-                          onChange={e => setOtpPhone(e.target.value)}
-                          className="h-11 pl-10"
-                          onKeyDown={e => e.key === 'Enter' && handleSendOtp()}
-                        />
-                      </div>
-                    </div>
-                    <Button
-                      onClick={handleSendOtp}
-                      className="w-full h-11 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg"
-                      disabled={isLoading}
-                    >
-                      {isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
-                      Send OTP
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="p-3 bg-emerald-50 rounded-lg text-center">
-                      <p className="text-sm text-emerald-800">OTP sent to <span className="font-bold">{otpPhone}</span></p>
-                      {otpUserName && <p className="text-xs text-emerald-600 mt-1">Account: {otpUserName}</p>}
-                    </div>
-
-                    {demoOtp && (
-                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-center">
-                        <p className="text-xs text-amber-700 font-medium">Demo Mode - Your OTP:</p>
-                        <p className="text-2xl font-bold text-amber-800 tracking-[0.3em] mt-1">{demoOtp}</p>
-                        <p className="text-[10px] text-amber-600 mt-1">In production, OTP will be sent via SMS</p>
-                      </div>
-                    )}
-
-                    <div className="space-y-2">
-                      <Label htmlFor="otpCode">Enter 6-digit OTP</Label>
-                      <Input
-                        id="otpCode"
-                        placeholder="000000"
-                        value={otpCode}
-                        onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                        className="h-14 text-center text-2xl tracking-[0.5em] font-mono"
-                        maxLength={6}
-                        onKeyDown={e => e.key === 'Enter' && otpCode.length === 6 && handleVerifyOtp()}
-                      />
-                    </div>
-
-                    <Button
-                      onClick={handleVerifyOtp}
-                      className="w-full h-11 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg"
-                      disabled={isLoading || otpCode.length !== 6}
-                    >
-                      {isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
-                      Verify & Login
-                    </Button>
-
-                    <div className="flex items-center justify-between text-sm">
-                      <Button variant="ghost" size="sm" onClick={resetOtpFlow} className="text-muted-foreground">
-                        Change Number
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleSendOtp}
-                        disabled={otpTimer > 0}
-                        className="text-emerald-600"
-                      >
-                        {otpTimer > 0 ? `Resend in ${otpTimer}s` : 'Resend OTP'}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </TabsContent>
-
-              {/* ===== EMP ID LOGIN TAB ===== */}
-              <TabsContent value="empid" className="space-y-4 mt-0">
-                <div className="space-y-2">
-                  <Label htmlFor="empId">Employee ID</Label>
-                  <Input
-                    id="empId"
-                    placeholder="e.g. ADMIN001 or EMP001"
-                    value={loginEmpId}
-                    onChange={e => setLoginEmpId(e.target.value)}
-                    className="h-11"
-                    onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="Enter password"
-                    value={loginPassword}
-                    onChange={e => setLoginPassword(e.target.value)}
-                    className="h-11"
-                    onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                  />
-                </div>
-                <Button
-                  onClick={handleLogin}
-                  className="w-full h-11 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg"
-                  disabled={isLoading}
-                >
-                  {isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ArrowRight className="w-4 h-4 mr-2" />}
-                  Sign In
-                </Button>
-              </TabsContent>
-            </Tabs>
-
-            <div className="mt-4 p-3 bg-muted/50 rounded-lg">
-              <p className="text-xs text-muted-foreground font-medium mb-2">Demo Credentials:</p>
-              <div className="text-xs text-muted-foreground space-y-1">
-                <p><span className="font-medium">📧 Email OTP:</span> rahul@company.com</p>
-                <p><span className="font-medium">📱 Phone OTP:</span> +91-9876543211</p>
-                <p><span className="font-medium">🔑 Emp ID:</span> ADMIN001 / admin123</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="min-h-screen flex flex-col bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 safe-area-top">
+        {/* Hidden video + canvas always in DOM for camera */}
+        <video ref={videoRef} autoPlay playsInline muted className="hidden" />
         <canvas ref={canvasRef} className="hidden" />
+
+        {/* Top decorative area */}
+        <div className="flex-shrink-0 pt-12 pb-6 px-6 text-center">
+          <div className="mx-auto w-20 h-20 bg-white/20 backdrop-blur-sm rounded-3xl flex items-center justify-center mb-4 shadow-xl">
+            <Fingerprint className="w-11 h-11 text-white" />
+          </div>
+          <h1 className="text-3xl font-bold text-white tracking-tight">FaceAttend</h1>
+          <p className="text-emerald-100 text-sm mt-1">Face Recognition Attendance</p>
+        </div>
+
+        {/* Login card */}
+        <div className="flex-1 bg-white rounded-t-3xl px-5 pt-6 pb-8 overflow-auto">
+          <Tabs value={loginMethod} onValueChange={v => { setLoginMethod(v as 'email-otp' | 'otp' | 'empid'); resetOtpFlow(); }} className="w-full">
+            <TabsList className="grid w-full grid-cols-3 mb-5 h-11 bg-gray-100 rounded-xl">
+              <TabsTrigger value="email-otp" className="rounded-lg text-xs data-[state=active]:bg-emerald-600 data-[state=active]:text-white data-[state=active]:shadow-sm">
+                <Mail className="w-3.5 h-3.5 mr-1" /> Email
+              </TabsTrigger>
+              <TabsTrigger value="otp" className="rounded-lg text-xs data-[state=active]:bg-emerald-600 data-[state=active]:text-white data-[state=active]:shadow-sm">
+                <Smartphone className="w-3.5 h-3.5 mr-1" /> Phone
+              </TabsTrigger>
+              <TabsTrigger value="empid" className="rounded-lg text-xs data-[state=active]:bg-emerald-600 data-[state=active]:text-white data-[state=active]:shadow-sm">
+                <KeyRound className="w-3.5 h-3.5 mr-1" /> Emp ID
+              </TabsTrigger>
+            </TabsList>
+
+            {/* EMAIL OTP */}
+            <TabsContent value="email-otp" className="space-y-4 mt-0">
+              {!otpSent ? (
+                <div className="space-y-4">
+                  <div className="p-3 bg-emerald-50 rounded-xl flex items-start gap-2">
+                    <Mail className="w-4 h-4 text-emerald-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-xs font-semibold text-emerald-800">Free Email OTP Login</p>
+                      <p className="text-[10px] text-emerald-600 mt-0.5">No SMS charges! OTP sent to email</p>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="otpEmail" className="text-sm font-medium">Email Address</Label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <Input
+                        id="otpEmail" type="email" placeholder="rahul@company.com"
+                        value={otpEmail} onChange={e => setOtpEmail(e.target.value)}
+                        className="h-12 pl-10 rounded-xl border-gray-200 text-base"
+                        onKeyDown={e => e.key === 'Enter' && handleSendOtp()}
+                      />
+                    </div>
+                  </div>
+                  <Button onClick={handleSendOtp} className="w-full h-12 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-base font-semibold shadow-lg" disabled={isLoading}>
+                    {isLoading ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <ShieldCheck className="w-5 h-5 mr-2" />}
+                    Send OTP to Email
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="p-3 bg-emerald-50 rounded-xl text-center">
+                    <p className="text-sm text-emerald-800">OTP sent to <span className="font-bold">{otpEmail}</span></p>
+                    {otpUserName && <p className="text-xs text-emerald-600 mt-1">Account: {otpUserName}</p>}
+                  </div>
+                  {demoOtp && (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-center">
+                      <p className="text-xs text-amber-700 font-medium">Demo Mode - Your OTP:</p>
+                      <p className="text-3xl font-bold text-amber-800 tracking-[0.3em] mt-1">{demoOtp}</p>
+                      <p className="text-[10px] text-amber-600 mt-1">In production, OTP will be sent to your email</p>
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <Label htmlFor="emailOtpCode" className="text-sm font-medium">Enter 6-digit OTP</Label>
+                    <Input id="emailOtpCode" placeholder="000000" value={otpCode}
+                      onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      className="h-14 text-center text-2xl tracking-[0.5em] font-mono rounded-xl" maxLength={6}
+                      onKeyDown={e => e.key === 'Enter' && otpCode.length === 6 && handleVerifyOtp()}
+                    />
+                  </div>
+                  <Button onClick={handleVerifyOtp} className="w-full h-12 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-base font-semibold shadow-lg" disabled={isLoading || otpCode.length !== 6}>
+                    {isLoading ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <ShieldCheck className="w-5 h-5 mr-2" />}
+                    Verify & Login
+                  </Button>
+                  <div className="flex items-center justify-between text-sm">
+                    <Button variant="ghost" size="sm" onClick={resetOtpFlow} className="text-gray-500">Change Email</Button>
+                    <Button variant="ghost" size="sm" onClick={handleSendOtp} disabled={otpTimer > 0} className="text-emerald-600">
+                      {otpTimer > 0 ? `Resend in ${otpTimer}s` : 'Resend OTP'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </TabsContent>
+
+            {/* PHONE OTP */}
+            <TabsContent value="otp" className="space-y-4 mt-0">
+              {!otpSent ? (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="otpPhone" className="text-sm font-medium">Phone Number</Label>
+                    <div className="relative">
+                      <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <Input id="otpPhone" placeholder="+91-9876543210" value={otpPhone}
+                        onChange={e => setOtpPhone(e.target.value)}
+                        className="h-12 pl-10 rounded-xl border-gray-200 text-base"
+                        onKeyDown={e => e.key === 'Enter' && handleSendOtp()}
+                      />
+                    </div>
+                  </div>
+                  <Button onClick={handleSendOtp} className="w-full h-12 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-base font-semibold shadow-lg" disabled={isLoading}>
+                    {isLoading ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <ShieldCheck className="w-5 h-5 mr-2" />}
+                    Send OTP
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="p-3 bg-emerald-50 rounded-xl text-center">
+                    <p className="text-sm text-emerald-800">OTP sent to <span className="font-bold">{otpPhone}</span></p>
+                    {otpUserName && <p className="text-xs text-emerald-600 mt-1">Account: {otpUserName}</p>}
+                  </div>
+                  {demoOtp && (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-center">
+                      <p className="text-xs text-amber-700 font-medium">Demo Mode - Your OTP:</p>
+                      <p className="text-3xl font-bold text-amber-800 tracking-[0.3em] mt-1">{demoOtp}</p>
+                      <p className="text-[10px] text-amber-600 mt-1">In production, OTP will be sent via SMS</p>
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <Label htmlFor="otpCode" className="text-sm font-medium">Enter 6-digit OTP</Label>
+                    <Input id="otpCode" placeholder="000000" value={otpCode}
+                      onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      className="h-14 text-center text-2xl tracking-[0.5em] font-mono rounded-xl" maxLength={6}
+                      onKeyDown={e => e.key === 'Enter' && otpCode.length === 6 && handleVerifyOtp()}
+                    />
+                  </div>
+                  <Button onClick={handleVerifyOtp} className="w-full h-12 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-base font-semibold shadow-lg" disabled={isLoading || otpCode.length !== 6}>
+                    {isLoading ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <ShieldCheck className="w-5 h-5 mr-2" />}
+                    Verify & Login
+                  </Button>
+                  <div className="flex items-center justify-between text-sm">
+                    <Button variant="ghost" size="sm" onClick={resetOtpFlow} className="text-gray-500">Change Number</Button>
+                    <Button variant="ghost" size="sm" onClick={handleSendOtp} disabled={otpTimer > 0} className="text-emerald-600">
+                      {otpTimer > 0 ? `Resend in ${otpTimer}s` : 'Resend OTP'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </TabsContent>
+
+            {/* EMP ID LOGIN */}
+            <TabsContent value="empid" className="space-y-4 mt-0">
+              <div className="space-y-2">
+                <Label htmlFor="empId" className="text-sm font-medium">Employee ID</Label>
+                <Input id="empId" placeholder="e.g. ADMIN001 or EMP001" value={loginEmpId}
+                  onChange={e => setLoginEmpId(e.target.value)}
+                  className="h-12 rounded-xl border-gray-200 text-base"
+                  onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password" className="text-sm font-medium">Password</Label>
+                <Input id="password" type="password" placeholder="Enter password" value={loginPassword}
+                  onChange={e => setLoginPassword(e.target.value)}
+                  className="h-12 rounded-xl border-gray-200 text-base"
+                  onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                />
+              </div>
+              <Button onClick={handleLogin} className="w-full h-12 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-base font-semibold shadow-lg" disabled={isLoading}>
+                {isLoading ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <ArrowRight className="w-5 h-5 mr-2" />}
+                Sign In
+              </Button>
+            </TabsContent>
+          </Tabs>
+
+          {/* Demo credentials */}
+          <div className="mt-5 p-3 bg-gray-50 rounded-xl">
+            <p className="text-xs text-gray-500 font-semibold mb-2">Demo Credentials:</p>
+            <div className="text-xs text-gray-500 space-y-1">
+              <p><span className="font-medium">Email OTP:</span> rahul@company.com</p>
+              <p><span className="font-medium">Phone OTP:</span> +91-9876543211</p>
+              <p><span className="font-medium">Emp ID:</span> ADMIN001 / admin123</p>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
 
-  // ========== DASHBOARD LAYOUT ==========
+  // ========== APP LAYOUT ==========
   const isAdmin = user.role === 'admin';
 
-  const adminMenuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: Home },
-    { id: 'employees', label: 'Employees', icon: Users },
-    { id: 'attendance-all', label: 'Attendance', icon: Clock },
+  const adminTabs = [
+    { id: 'dashboard', label: 'Home', icon: Home },
+    { id: 'employees', label: 'Staff', icon: Users },
+    { id: 'attendance-all', label: 'Records', icon: Clock },
     { id: 'payroll', label: 'Payroll', icon: Wallet },
   ];
 
-  const empMenuItems = [
-    { id: 'check-in-out', label: 'Check In/Out', icon: Fingerprint },
-    { id: 'my-attendance', label: 'My Attendance', icon: Clock },
-    { id: 'my-payroll', label: 'My Payroll', icon: Wallet },
+  const empTabs = [
+    { id: 'check-in-out', label: 'Home', icon: Fingerprint },
+    { id: 'my-attendance', label: 'Attendance', icon: Clock },
+    { id: 'my-payroll', label: 'Payroll', icon: Wallet },
+    { id: 'profile', label: 'Profile', icon: Users },
   ];
 
-  const menuItems = isAdmin ? adminMenuItems : empMenuItems;
+  const tabs = isAdmin ? adminTabs : empTabs;
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex">
-      {/* Sidebar */}
-      <aside className={`${sidebarOpen ? 'w-64' : 'w-0'} bg-white border-r border-gray-200 transition-all duration-300 flex-shrink-0 overflow-hidden fixed md:relative h-full z-30`}>
-        <div className="h-full flex flex-col">
-          <div className="p-4 border-b border-gray-100">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center">
-                <Fingerprint className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h2 className="font-bold text-lg bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">FaceAttend</h2>
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{isAdmin ? 'Admin Panel' : 'Employee Portal'}</p>
-              </div>
-            </div>
+  // Full-screen camera overlay for check-in/out
+  if (checkInFlow || checkOutFlow) {
+    return (
+      <div className="fixed inset-0 bg-black z-50 flex flex-col safe-area">
+        {/* Hidden canvas always in DOM */}
+        <canvas ref={canvasRef} className="hidden" />
+
+        {/* Camera header */}
+        <div className="flex items-center justify-between px-4 py-3 bg-black/80 text-white z-10">
+          <div className="flex items-center gap-2">
+            <Badge className={checkInFlow ? 'bg-emerald-500 text-white px-3 py-1 text-sm' : 'bg-red-500 text-white px-3 py-1 text-sm'}>
+              {checkInFlow ? <UserCheck className="w-4 h-4 mr-1" /> : <UserX className="w-4 h-4 mr-1" />}
+              {checkInFlow ? 'Check In' : 'Check Out'}
+            </Badge>
           </div>
+          <button onClick={cancelFlow} className="w-8 h-8 flex items-center justify-center rounded-full bg-white/20">
+            <XCircle className="w-5 h-5 text-white" />
+          </button>
+        </div>
 
-          <nav className="flex-1 p-3 space-y-1">
-            {menuItems.map(item => {
-              const Icon = item.icon;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => { setCurrentView(item.id); if (window.innerWidth < 768) setSidebarOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                    currentView === item.id
-                      ? 'bg-emerald-50 text-emerald-700 shadow-sm'
-                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                  }`}
-                >
-                  <Icon className="w-5 h-5" />
-                  {item.label}
-                </button>
-              );
-            })}
-          </nav>
-
-          <div className="p-3 border-t border-gray-100">
-            <div className="flex items-center gap-3 p-2">
-              <Avatar className="w-9 h-9 bg-emerald-100">
-                <AvatarFallback className="bg-emerald-100 text-emerald-700 font-semibold text-sm">
-                  {user.name.split(' ').map(n => n[0]).join('')}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{user.name}</p>
-                <p className="text-xs text-muted-foreground truncate">{user.empId} · {user.department}</p>
-              </div>
-              <Button variant="ghost" size="icon" onClick={handleLogout} className="h-8 w-8 text-gray-400 hover:text-red-500">
-                <LogOut className="w-4 h-4" />
-              </Button>
+        {/* Camera view */}
+        <div className="flex-1 relative flex items-center justify-center bg-gray-900">
+          {!cameraActive && !capturedPhoto && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
+              <Camera className="w-16 h-16 mb-3" />
+              <p className="text-lg font-medium">Opening camera...</p>
+              {cameraLoading && <Loader2 className="w-8 h-8 animate-spin mt-3" />}
             </div>
+          )}
+
+          {/* Video element - always rendered */}
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className={`w-full h-full object-cover ${!cameraActive || capturedPhoto ? 'hidden' : ''}`}
+          />
+
+          {cameraActive && !capturedPhoto && (
+            <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+              <div className="w-72 h-72 rounded-full border-4 border-emerald-400/60">
+                <div className="w-full h-full rounded-full border-2 border-emerald-400/30" />
+              </div>
+            </div>
+          )}
+
+          {capturedPhoto && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black">
+              <img src={capturedPhoto} alt="Captured" className="w-72 h-72 rounded-full object-cover border-4 border-emerald-400" />
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
+                <CheckCircle2 className="w-8 h-8 text-emerald-400" />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Bottom controls */}
+        <div className="bg-black/90 px-5 py-4 space-y-3 safe-area-bottom">
+          {/* Location info */}
+          {locationLoading && !currentLocation && (
+            <div className="flex items-center gap-2 text-emerald-300 text-sm">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Getting location...</span>
+            </div>
+          )}
+          {currentLocation && (
+            <div className="flex items-start gap-2 text-emerald-300 text-xs">
+              <MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+              <span className="line-clamp-2">{currentLocation.address}</span>
+            </div>
+          )}
+          {!locationLoading && !currentLocation && (
+            <Button variant="ghost" size="sm" onClick={getLocation} className="text-emerald-300 text-xs p-0 h-auto">
+              <MapPin className="w-3 h-3 mr-1" /> Tap to get location
+            </Button>
+          )}
+
+          {/* Action buttons */}
+          <div className="flex gap-3">
+            {cameraActive && !capturedPhoto && (
+              <Button onClick={capturePhoto} className="flex-1 h-14 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-lg font-bold shadow-xl">
+                <Camera className="w-6 h-6 mr-2" /> Capture
+              </Button>
+            )}
+            {capturedPhoto && (
+              <>
+                <Button variant="outline" onClick={retakePhoto} className="flex-1 h-14 rounded-2xl text-base font-semibold border-white/30 text-white hover:bg-white/10">
+                  Retake
+                </Button>
+                <Button
+                  onClick={checkInFlow ? handleCheckIn : handleCheckOut}
+                  disabled={isLoading}
+                  className={`flex-1 h-14 rounded-2xl text-lg font-bold shadow-xl text-white ${checkInFlow ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-500 hover:bg-red-600'}`}
+                >
+                  {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : checkInFlow ? <UserCheck className="w-6 h-6 mr-2" /> : <UserX className="w-6 h-6 mr-2" />}
+                  {checkInFlow ? 'Check In' : 'Check Out'}
+                </Button>
+              </>
+            )}
+            {!cameraActive && !capturedPhoto && cameraLoading && (
+              <Button disabled className="flex-1 h-14 rounded-2xl text-base font-semibold bg-gray-700 text-gray-400">
+                <Loader2 className="w-5 h-5 mr-2 animate-spin" /> Starting camera...
+              </Button>
+            )}
+            {!cameraActive && !capturedPhoto && !cameraLoading && (
+              <Button onClick={startCamera} className="flex-1 h-14 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-base font-semibold shadow-xl">
+                <Camera className="w-5 h-5 mr-2" /> Retry Camera
+              </Button>
+            )}
           </div>
         </div>
-      </aside>
+      </div>
+    );
+  }
 
-      {/* Overlay for mobile */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 bg-black/30 z-20 md:hidden" onClick={() => setSidebarOpen(false)} />
-      )}
+  // ========== MAIN APP INTERFACE ==========
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col safe-area-top">
+      {/* Hidden video + canvas always in DOM for camera */}
+      <video ref={videoRef} autoPlay playsInline muted className="hidden" />
+      <canvas ref={canvasRef} className="hidden" />
 
-      {/* Main Content */}
-      <main className="flex-1 min-w-0 overflow-auto">
-        {/* Top Bar */}
-        <header className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-10">
+      {/* App Header */}
+      <header className="flex-shrink-0 bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-4 py-3 shadow-lg">
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(!sidebarOpen)} className="h-9 w-9">
-              {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </Button>
-            <div className="flex-1">
-              <h1 className="text-lg font-semibold text-gray-900">
-                {menuItems.find(m => m.id === currentView)?.label || 'Dashboard'}
-              </h1>
+            <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center">
+              <Fingerprint className="w-5 h-5 text-white" />
             </div>
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="text-xs">
-                <Clock className="w-3 h-3 mr-1" />
-                {new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
-              </Badge>
+            <div>
+              <h1 className="font-bold text-lg leading-tight">FaceAttend</h1>
+              <p className="text-[10px] text-emerald-100 uppercase tracking-wider">{isAdmin ? 'Admin Panel' : 'Employee'}</p>
             </div>
           </div>
-        </header>
+          <div className="flex items-center gap-2">
+            <Avatar className="w-8 h-8 border-2 border-white/30">
+              <AvatarFallback className="bg-white/20 text-white text-xs font-bold">
+                {user.name.split(' ').map(n => n[0]).join('')}
+              </AvatarFallback>
+            </Avatar>
+            <button onClick={handleLogout} className="w-8 h-8 flex items-center justify-center rounded-full bg-white/15 hover:bg-white/25 transition-colors">
+              <LogOut className="w-4 h-4 text-white" />
+            </button>
+          </div>
+        </div>
+      </header>
 
-        <div className="p-4 md:p-6 max-w-7xl mx-auto">
-          {/* ===== ADMIN DASHBOARD ===== */}
+      {/* Content */}
+      <main className="flex-1 overflow-auto pb-20">
+        <div className="px-4 py-4 max-w-2xl mx-auto">
+
+          {/* ===== ADMIN: DASHBOARD ===== */}
           {currentView === 'dashboard' && isAdmin && dashboardStats && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <Card className="border-0 shadow-sm bg-gradient-to-br from-emerald-50 to-emerald-100/50">
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-xs font-medium text-emerald-600 uppercase tracking-wider">Total Staff</p>
-                        <p className="text-2xl font-bold text-emerald-900 mt-1">{dashboardStats.totalEmployees}</p>
-                      </div>
-                      <div className="w-10 h-10 bg-emerald-500/20 rounded-xl flex items-center justify-center">
-                        <Users className="w-5 h-5 text-emerald-600" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card className="border-0 shadow-sm bg-gradient-to-br from-teal-50 to-teal-100/50">
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-xs font-medium text-teal-600 uppercase tracking-wider">Present Today</p>
-                        <p className="text-2xl font-bold text-teal-900 mt-1">{dashboardStats.todayPresent}</p>
-                      </div>
-                      <div className="w-10 h-10 bg-teal-500/20 rounded-xl flex items-center justify-center">
-                        <UserCheck className="w-5 h-5 text-teal-600" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card className="border-0 shadow-sm bg-gradient-to-br from-amber-50 to-amber-100/50">
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-xs font-medium text-amber-600 uppercase tracking-wider">Absent Today</p>
-                        <p className="text-2xl font-bold text-amber-900 mt-1">{dashboardStats.todayAbsent}</p>
-                      </div>
-                      <div className="w-10 h-10 bg-amber-500/20 rounded-xl flex items-center justify-center">
-                        <UserX className="w-5 h-5 text-amber-600" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card className="border-0 shadow-sm bg-gradient-to-br from-purple-50 to-purple-100/50">
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-xs font-medium text-purple-600 uppercase tracking-wider">Monthly Payroll</p>
-                        <p className="text-2xl font-bold text-purple-900 mt-1">₹{(dashboardStats.monthlyPayroll / 1000).toFixed(0)}k</p>
-                      </div>
-                      <div className="w-10 h-10 bg-purple-500/20 rounded-xl flex items-center justify-center">
-                        <Wallet className="w-5 h-5 text-purple-600" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+            <div className="space-y-4">
+              {/* Welcome */}
+              <div className="mb-2">
+                <h2 className="text-xl font-bold text-gray-900">Welcome back! 👋</h2>
+                <p className="text-sm text-gray-500">{new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
               </div>
 
-              <div className="grid md:grid-cols-2 gap-6">
-                <Card className="border-0 shadow-sm">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base">Department Distribution</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {dashboardStats.departments.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={250}>
-                        <PieChart>
-                          <Pie
-                            data={dashboardStats.departments.map(d => ({ name: d.department, value: d._count.id }))}
-                            dataKey="value"
-                            nameKey="name"
-                            cx="50%"
-                            cy="50%"
-                            outerRadius={90}
-                            innerRadius={50}
-                            label={({ name, value }) => `${name}: ${value}`}
-                          >
-                            {dashboardStats.departments.map((_, idx) => (
-                              <Cell key={idx} fill={CHART_COLORS[idx % CHART_COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    ) : (
-                      <p className="text-sm text-muted-foreground text-center py-12">No data available</p>
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card className="border-0 shadow-sm">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base">Today&apos;s Attendance Overview</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ResponsiveContainer width="100%" height={250}>
-                      <BarChart data={[
-                        { name: 'Present', value: dashboardStats.todayPresent, fill: '#10b981' },
-                        { name: 'Checked Out', value: dashboardStats.todayCheckedOut, fill: '#06b6d4' },
-                        { name: 'Absent', value: dashboardStats.todayAbsent, fill: '#ef4444' },
-                      ]}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                        <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                        <YAxis tick={{ fontSize: 12 }} />
-                        <Tooltip />
-                        <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                          {[
-                            { fill: '#10b981' },
-                            { fill: '#06b6d4' },
-                            { fill: '#ef4444' },
-                          ].map((entry, idx) => (
-                            <Cell key={idx} fill={entry.fill} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </CardContent>
-                </Card>
+              {/* Stats grid */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-2xl p-4 text-white shadow-lg">
+                  <Users className="w-5 h-5 mb-2 opacity-80" />
+                  <p className="text-2xl font-bold">{dashboardStats.totalEmployees}</p>
+                  <p className="text-xs text-emerald-100">Total Staff</p>
+                </div>
+                <div className="bg-gradient-to-br from-teal-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg">
+                  <UserCheck className="w-5 h-5 mb-2 opacity-80" />
+                  <p className="text-2xl font-bold">{dashboardStats.todayPresent}</p>
+                  <p className="text-xs text-teal-100">Present Today</p>
+                </div>
+                <div className="bg-gradient-to-br from-amber-500 to-amber-600 rounded-2xl p-4 text-white shadow-lg">
+                  <UserX className="w-5 h-5 mb-2 opacity-80" />
+                  <p className="text-2xl font-bold">{dashboardStats.todayAbsent}</p>
+                  <p className="text-xs text-amber-100">Absent Today</p>
+                </div>
+                <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl p-4 text-white shadow-lg">
+                  <Wallet className="w-5 h-5 mb-2 opacity-80" />
+                  <p className="text-2xl font-bold">₹{(dashboardStats.monthlyPayroll / 1000).toFixed(0)}k</p>
+                  <p className="text-xs text-purple-100">Payroll</p>
+                </div>
               </div>
 
-              <Card className="border-0 shadow-sm">
+              {/* Department chart */}
+              <Card className="rounded-2xl border-0 shadow-sm">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Recent Attendance Activity</CardTitle>
+                  <CardTitle className="text-sm font-semibold">Departments</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Employee</TableHead>
-                          <TableHead>Department</TableHead>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Check In</TableHead>
-                          <TableHead>Check Out</TableHead>
-                          <TableHead>Hours</TableHead>
-                          <TableHead>Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {dashboardStats.recentAttendance.length === 0 ? (
-                          <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">No attendance records yet</TableCell></TableRow>
-                        ) : (
-                          dashboardStats.recentAttendance.slice(0, 8).map(r => (
-                            <TableRow key={r.id}>
-                              <TableCell className="font-medium">{r.employee?.name}</TableCell>
-                              <TableCell>{r.employee?.department}</TableCell>
-                              <TableCell>{formatDate(r.date)}</TableCell>
-                              <TableCell>{formatTime(r.checkIn)}</TableCell>
-                              <TableCell>{formatTime(r.checkOut)}</TableCell>
-                              <TableCell>{r.workHours?.toFixed(1) || '-'} hrs</TableCell>
-                              <TableCell>
-                                <Badge variant={r.status === 'checked-out' ? 'default' : 'secondary'}
-                                  className={r.status === 'checked-out' ? 'bg-emerald-100 text-emerald-700' : r.status === 'checked-in' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-700'}>
-                                  {r.status === 'checked-out' ? 'Completed' : r.status === 'checked-in' ? 'Active' : 'Pending'}
-                                </Badge>
-                              </TableCell>
-                            </TableRow>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
+                  {dashboardStats.departments.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <PieChart>
+                        <Pie data={dashboardStats.departments.map(d => ({ name: d.department, value: d._count.id }))}
+                          dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} innerRadius={40}
+                          label={({ name, value }) => `${name}: ${value}`}>
+                          {dashboardStats.departments.map((_, idx) => (
+                            <Cell key={idx} fill={CHART_COLORS[idx % CHART_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <p className="text-sm text-gray-400 text-center py-8">No data</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Today overview */}
+              <Card className="rounded-2xl border-0 shadow-sm">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold">Today&apos;s Overview</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <BarChart data={[
+                      { name: 'Present', value: dashboardStats.todayPresent, fill: '#10b981' },
+                      { name: 'Out', value: dashboardStats.todayCheckedOut, fill: '#06b6d4' },
+                      { name: 'Absent', value: dashboardStats.todayAbsent, fill: '#ef4444' },
+                    ]}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} />
+                      <Tooltip />
+                      <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+                        {[{ fill: '#10b981' }, { fill: '#06b6d4' }, { fill: '#ef4444' }].map((entry, idx) => (
+                          <Cell key={idx} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              {/* Recent activity */}
+              <Card className="rounded-2xl border-0 shadow-sm">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold">Recent Activity</CardTitle>
+                </CardHeader>
+                <CardContent className="p-3">
+                  {dashboardStats.recentAttendance.length === 0 ? (
+                    <p className="text-sm text-gray-400 text-center py-6">No records yet</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {dashboardStats.recentAttendance.slice(0, 6).map(r => (
+                        <div key={r.id} className="flex items-center gap-3 p-2 bg-gray-50 rounded-xl">
+                          <Avatar className="w-9 h-9">
+                            <AvatarFallback className="bg-emerald-100 text-emerald-700 text-xs font-bold">
+                              {r.employee?.name.split(' ').map(n => n[0]).join('')}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{r.employee?.name}</p>
+                            <p className="text-xs text-gray-500">{formatTime(r.checkIn)} - {formatTime(r.checkOut)} · {r.workHours?.toFixed(1) || '-'}h</p>
+                          </div>
+                          <Badge className={`${r.status === 'checked-out' ? 'bg-emerald-100 text-emerald-700' : r.status === 'checked-in' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'} text-[10px]`}>
+                            {r.status === 'checked-out' ? 'Done' : r.status === 'checked-in' ? 'Active' : 'Pending'}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -1189,36 +1168,36 @@ export default function HomePage() {
           {/* ===== ADMIN: EMPLOYEES ===== */}
           {currentView === 'employees' && isAdmin && (
             <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-xl font-semibold">Employee Management</h2>
-                  <p className="text-sm text-muted-foreground">{employees.length} active employees</p>
+                  <h2 className="text-xl font-bold">Staff</h2>
+                  <p className="text-sm text-gray-500">{employees.length} employees</p>
                 </div>
                 <Dialog open={showAddEmployee} onOpenChange={setShowAddEmployee}>
                   <DialogTrigger asChild>
-                    <Button className="bg-emerald-600 hover:bg-emerald-700 text-white">
-                      <UserPlus className="w-4 h-4 mr-2" /> Add Employee
+                    <Button className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl h-10">
+                      <UserPlus className="w-4 h-4 mr-1" /> Add
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+                  <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl">
                     <DialogHeader>
                       <DialogTitle>Add New Employee</DialogTitle>
-                      <DialogDescription>Fill in the details to add a new employee</DialogDescription>
+                      <DialogDescription>Fill in the details</DialogDescription>
                     </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2"><Label>Employee ID *</Label><Input placeholder="EMP006" value={newEmployee.empId} onChange={e => setNewEmployee({ ...newEmployee, empId: e.target.value })} /></div>
-                        <div className="space-y-2"><Label>Full Name *</Label><Input placeholder="John Doe" value={newEmployee.name} onChange={e => setNewEmployee({ ...newEmployee, name: e.target.value })} /></div>
+                    <div className="grid gap-3 py-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1"><Label className="text-xs">Employee ID *</Label><Input placeholder="EMP006" value={newEmployee.empId} onChange={e => setNewEmployee({ ...newEmployee, empId: e.target.value })} className="h-10 rounded-xl" /></div>
+                        <div className="space-y-1"><Label className="text-xs">Full Name *</Label><Input placeholder="John Doe" value={newEmployee.name} onChange={e => setNewEmployee({ ...newEmployee, name: e.target.value })} className="h-10 rounded-xl" /></div>
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2"><Label>Email *</Label><Input type="email" placeholder="john@company.com" value={newEmployee.email} onChange={e => setNewEmployee({ ...newEmployee, email: e.target.value })} /></div>
-                        <div className="space-y-2"><Label>Phone</Label><Input placeholder="+91-9876543216" value={newEmployee.phone} onChange={e => setNewEmployee({ ...newEmployee, phone: e.target.value })} /></div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1"><Label className="text-xs">Email *</Label><Input type="email" placeholder="john@company.com" value={newEmployee.email} onChange={e => setNewEmployee({ ...newEmployee, email: e.target.value })} className="h-10 rounded-xl" /></div>
+                        <div className="space-y-1"><Label className="text-xs">Phone</Label><Input placeholder="+91-9876543216" value={newEmployee.phone} onChange={e => setNewEmployee({ ...newEmployee, phone: e.target.value })} className="h-10 rounded-xl" /></div>
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>Department *</Label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Department *</Label>
                           <Select value={newEmployee.department} onValueChange={v => setNewEmployee({ ...newEmployee, department: v })}>
-                            <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                            <SelectTrigger className="h-10 rounded-xl"><SelectValue placeholder="Select" /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="Engineering">Engineering</SelectItem>
                               <SelectItem value="Design">Design</SelectItem>
@@ -1229,14 +1208,14 @@ export default function HomePage() {
                             </SelectContent>
                           </Select>
                         </div>
-                        <div className="space-y-2"><Label>Position *</Label><Input placeholder="Software Developer" value={newEmployee.position} onChange={e => setNewEmployee({ ...newEmployee, position: e.target.value })} /></div>
+                        <div className="space-y-1"><Label className="text-xs">Position *</Label><Input placeholder="Developer" value={newEmployee.position} onChange={e => setNewEmployee({ ...newEmployee, position: e.target.value })} className="h-10 rounded-xl" /></div>
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2"><Label>Monthly Salary (₹) *</Label><Input type="number" placeholder="50000" value={newEmployee.salary} onChange={e => setNewEmployee({ ...newEmployee, salary: e.target.value })} /></div>
-                        <div className="space-y-2">
-                          <Label>Role</Label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1"><Label className="text-xs">Salary (₹) *</Label><Input type="number" placeholder="50000" value={newEmployee.salary} onChange={e => setNewEmployee({ ...newEmployee, salary: e.target.value })} className="h-10 rounded-xl" /></div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Role</Label>
                           <Select value={newEmployee.role} onValueChange={v => setNewEmployee({ ...newEmployee, role: v })}>
-                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectTrigger className="h-10 rounded-xl"><SelectValue /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="employee">Employee</SelectItem>
                               <SelectItem value="admin">Admin</SelectItem>
@@ -1244,485 +1223,267 @@ export default function HomePage() {
                           </Select>
                         </div>
                       </div>
-                      <div className="space-y-2">
-                        <Label>Login Password *</Label>
-                        <Input type="password" placeholder="Minimum 6 characters" value={newEmployee.password} onChange={e => setNewEmployee({ ...newEmployee, password: e.target.value })} />
-                      </div>
+                      <div className="space-y-1"><Label className="text-xs">Password *</Label><Input type="password" placeholder="Min 6 chars" value={newEmployee.password} onChange={e => setNewEmployee({ ...newEmployee, password: e.target.value })} className="h-10 rounded-xl" /></div>
                     </div>
                     <DialogFooter>
-                      <Button variant="outline" onClick={() => setShowAddEmployee(false)}>Cancel</Button>
-                      <Button onClick={handleAddEmployee} className="bg-emerald-600 hover:bg-emerald-700 text-white">Add Employee</Button>
+                      <Button variant="outline" onClick={() => setShowAddEmployee(false)} className="rounded-xl">Cancel</Button>
+                      <Button onClick={handleAddEmployee} className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl">Add</Button>
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
               </div>
 
-              <Card className="border-0 shadow-sm">
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Emp ID</TableHead>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Email</TableHead>
-                          <TableHead>Department</TableHead>
-                          <TableHead>Position</TableHead>
-                          <TableHead>Salary</TableHead>
-                          <TableHead>Role</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {employees.map(emp => (
-                          <TableRow key={emp.id}>
-                            <TableCell className="font-mono text-sm">{emp.empId}</TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-2">
-                                <Avatar className="w-8 h-8">
-                                  <AvatarFallback className="bg-emerald-100 text-emerald-700 text-xs font-semibold">
-                                    {emp.name.split(' ').map((n: string) => n[0]).join('')}
-                                  </AvatarFallback>
-                                </Avatar>
-                                <span className="font-medium">{emp.name}</span>
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-muted-foreground">{emp.email}</TableCell>
-                            <TableCell><Badge variant="outline" className="text-xs">{emp.department}</Badge></TableCell>
-                            <TableCell className="text-muted-foreground">{emp.position}</TableCell>
-                            <TableCell className="font-medium">₹{emp.salary.toLocaleString('en-IN')}</TableCell>
-                            <TableCell>
-                              <Badge className={emp.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-700'}>
-                                {emp.role}
-                              </Badge>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CardContent>
-              </Card>
+              {/* Employee cards (mobile-friendly) */}
+              <div className="space-y-3">
+                {employees.map(emp => (
+                  <Card key={emp.id} className="rounded-2xl border-0 shadow-sm">
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-3">
+                        <Avatar className="w-11 h-11">
+                          <AvatarFallback className="bg-emerald-100 text-emerald-700 font-bold text-sm">
+                            {emp.name.split(' ').map((n: string) => n[0]).join('')}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-sm">{emp.name}</p>
+                          <p className="text-xs text-gray-500">{emp.empId} · {emp.department}</p>
+                          <p className="text-xs text-gray-400">{emp.position}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold">₹{emp.salary.toLocaleString('en-IN')}</p>
+                          <Badge className={emp.role === 'admin' ? 'bg-purple-100 text-purple-700 text-[10px]' : 'bg-gray-100 text-gray-600 text-[10px]'}>
+                            {emp.role}
+                          </Badge>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             </div>
           )}
 
           {/* ===== ADMIN: ALL ATTENDANCE ===== */}
           {currentView === 'attendance-all' && isAdmin && (
             <div className="space-y-4">
-              <div>
-                <h2 className="text-xl font-semibold">Attendance Records</h2>
-                <p className="text-sm text-muted-foreground">All employee attendance data</p>
-              </div>
-              <Card className="border-0 shadow-sm">
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Employee</TableHead>
-                          <TableHead>Emp ID</TableHead>
-                          <TableHead>Department</TableHead>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Check In</TableHead>
-                          <TableHead>Check In Location</TableHead>
-                          <TableHead>Check Out</TableHead>
-                          <TableHead>Work Hours</TableHead>
-                          <TableHead>Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {allAttendance.length === 0 ? (
-                          <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">No attendance records found</TableCell></TableRow>
-                        ) : (
-                          allAttendance.slice(0, 50).map(r => (
-                            <TableRow key={r.id}>
-                              <TableCell className="font-medium">{r.employee?.name}</TableCell>
-                              <TableCell className="font-mono text-sm">{r.employee?.empId}</TableCell>
-                              <TableCell>{r.employee?.department}</TableCell>
-                              <TableCell>{formatDate(r.date)}</TableCell>
-                              <TableCell>
-                                <div className="flex items-center gap-1">
-                                  <Clock className="w-3 h-3 text-muted-foreground" />
-                                  {formatTime(r.checkIn)}
-                                </div>
-                              </TableCell>
-                              <TableCell className="max-w-[200px] truncate text-xs text-muted-foreground">
-                                {r.checkInAddr || '-'}
-                              </TableCell>
-                              <TableCell>{formatTime(r.checkOut)}</TableCell>
-                              <TableCell>{r.workHours?.toFixed(1) || '-'} hrs</TableCell>
-                              <TableCell>
-                                <Badge className={r.status === 'checked-out' ? 'bg-emerald-100 text-emerald-700' : r.status === 'checked-in' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-700'}>
-                                  {r.status === 'checked-out' ? 'Completed' : r.status === 'checked-in' ? 'Active' : 'Pending'}
-                                </Badge>
-                              </TableCell>
-                            </TableRow>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CardContent>
-              </Card>
+              <h2 className="text-xl font-bold">Attendance</h2>
+              {allAttendance.length === 0 ? (
+                <Card className="rounded-2xl border-0 shadow-sm">
+                  <CardContent className="py-12 text-center">
+                    <Clock className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+                    <p className="text-gray-500">No attendance records yet</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-2">
+                  {allAttendance.slice(0, 30).map(r => (
+                    <Card key={r.id} className="rounded-2xl border-0 shadow-sm">
+                      <CardContent className="p-3">
+                        <div className="flex items-center gap-3">
+                          <Avatar className="w-9 h-9">
+                            <AvatarFallback className="bg-emerald-100 text-emerald-700 text-xs font-bold">
+                              {r.employee?.name.split(' ').map(n => n[0]).join('')}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium">{r.employee?.name}</p>
+                            <p className="text-xs text-gray-500">{formatDate(r.date)} · {formatTime(r.checkIn)} - {formatTime(r.checkOut)}</p>
+                            {r.checkInAddr && <p className="text-[10px] text-gray-400 truncate mt-0.5">📍 {r.checkInAddr}</p>}
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs font-medium">{r.workHours?.toFixed(1) || '-'}h</p>
+                            <Badge className={`${r.status === 'checked-out' ? 'bg-emerald-100 text-emerald-700' : r.status === 'checked-in' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'} text-[10px]`}>
+                              {r.status === 'checked-out' ? 'Done' : r.status === 'checked-in' ? 'Active' : 'Pending'}
+                            </Badge>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
           {/* ===== ADMIN: PAYROLL ===== */}
           {currentView === 'payroll' && isAdmin && (
             <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <h2 className="text-xl font-semibold">Payroll Management</h2>
-                  <p className="text-sm text-muted-foreground">Generate and manage employee payroll</p>
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold">Payroll</h2>
+                <div className="flex items-center gap-2">
                   <Select value={String(payrollMonth)} onValueChange={v => setPayrollMonth(parseInt(v))}>
-                    <SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="w-[90px] h-9 rounded-xl text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {MONTHS.map((m, i) => <SelectItem key={i} value={String(i + 1)}>{m}</SelectItem>)}
                     </SelectContent>
                   </Select>
                   <Select value={String(payrollYear)} onValueChange={v => setPayrollYear(parseInt(v))}>
-                    <SelectTrigger className="w-[100px]"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="w-[75px] h-9 rounded-xl text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="2025">2025</SelectItem>
                       <SelectItem value="2026">2026</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Button
-                    onClick={handleGeneratePayroll}
-                    disabled={generatingPayroll}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                  >
-                    {generatingPayroll ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Receipt className="w-4 h-4 mr-2" />}
-                    Generate
-                  </Button>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                <Card className="border-0 shadow-sm">
-                  <CardContent className="p-4 text-center">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider">Total Payroll</p>
-                    <p className="text-2xl font-bold mt-1">₹{dashboardStats?.monthlyPayroll?.toLocaleString('en-IN') || '0'}</p>
-                  </CardContent>
-                </Card>
-                <Card className="border-0 shadow-sm">
-                  <CardContent className="p-4 text-center">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider">Paid</p>
-                    <p className="text-2xl font-bold text-emerald-600 mt-1">₹{dashboardStats?.paidAmount?.toLocaleString('en-IN') || '0'}</p>
-                  </CardContent>
-                </Card>
-                <Card className="border-0 shadow-sm">
-                  <CardContent className="p-4 text-center">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider">Pending</p>
-                    <p className="text-2xl font-bold text-amber-600 mt-1">₹{dashboardStats?.pendingAmount?.toLocaleString('en-IN') || '0'}</p>
-                  </CardContent>
-                </Card>
+              <Button onClick={handleGeneratePayroll} disabled={generatingPayroll} className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold">
+                {generatingPayroll ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Receipt className="w-4 h-4 mr-2" />}
+                Generate Payroll
+              </Button>
+
+              {/* Payroll summary */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-white rounded-2xl p-3 shadow-sm text-center">
+                  <p className="text-[10px] text-gray-500 uppercase">Total</p>
+                  <p className="text-sm font-bold">₹{dashboardStats?.monthlyPayroll?.toLocaleString('en-IN') || '0'}</p>
+                </div>
+                <div className="bg-white rounded-2xl p-3 shadow-sm text-center">
+                  <p className="text-[10px] text-emerald-600 uppercase">Paid</p>
+                  <p className="text-sm font-bold text-emerald-600">₹{dashboardStats?.paidAmount?.toLocaleString('en-IN') || '0'}</p>
+                </div>
+                <div className="bg-white rounded-2xl p-3 shadow-sm text-center">
+                  <p className="text-[10px] text-amber-600 uppercase">Pending</p>
+                  <p className="text-sm font-bold text-amber-600">₹{dashboardStats?.pendingAmount?.toLocaleString('en-IN') || '0'}</p>
+                </div>
               </div>
 
-              <Card className="border-0 shadow-sm">
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Employee</TableHead>
-                          <TableHead>Month</TableHead>
-                          <TableHead>Basic</TableHead>
-                          <TableHead>Present</TableHead>
-                          <TableHead>Overtime</TableHead>
-                          <TableHead>Deductions</TableHead>
-                          <TableHead>Net Salary</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead>Action</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {payrollRecords.length === 0 ? (
-                          <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">No payroll records. Click Generate to create payroll.</TableCell></TableRow>
-                        ) : (
-                          payrollRecords.map(p => (
-                            <TableRow key={p.id}>
-                              <TableCell>
-                                <div>
-                                  <p className="font-medium">{p.employee?.name}</p>
-                                  <p className="text-xs text-muted-foreground">{p.employee?.empId}</p>
-                                </div>
-                              </TableCell>
-                              <TableCell>{MONTH_FULL[p.month - 1]} {p.year}</TableCell>
-                              <TableCell>₹{p.basicSalary.toLocaleString('en-IN')}</TableCell>
-                              <TableCell>{p.presentDays}/{p.workingDays} days</TableCell>
-                              <TableCell className="text-emerald-600">+₹{p.overtime.toLocaleString('en-IN')}</TableCell>
-                              <TableCell className="text-red-500">-₹{p.deductions.toLocaleString('en-IN')}</TableCell>
-                              <TableCell className="font-bold">₹{p.netSalary.toLocaleString('en-IN')}</TableCell>
-                              <TableCell>
-                                <Badge className={p.status === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}>
-                                  {p.status === 'paid' ? <CheckCircle2 className="w-3 h-3 mr-1" /> : <Timer className="w-3 h-3 mr-1" />}
-                                  {p.status === 'paid' ? 'Paid' : 'Pending'}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                {p.status === 'pending' && (
-                                  <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => handleMarkPaid(p.id)}>
-                                    Mark Paid
-                                  </Button>
-                                )}
-                                {p.status === 'paid' && p.paidAt && (
-                                  <span className="text-xs text-muted-foreground">{formatDate(p.paidAt)}</span>
-                                )}
-                              </TableCell>
-                            </TableRow>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CardContent>
-              </Card>
+              {/* Payroll records as cards */}
+              {payrollRecords.length === 0 ? (
+                <Card className="rounded-2xl border-0 shadow-sm">
+                  <CardContent className="py-12 text-center">
+                    <Wallet className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+                    <p className="text-gray-500">No payroll records</p>
+                    <p className="text-xs text-gray-400 mt-1">Click Generate to create payroll</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-3">
+                  {payrollRecords.map(p => (
+                    <Card key={p.id} className="rounded-2xl border-0 shadow-sm">
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <div>
+                            <p className="font-semibold text-sm">{p.employee?.name}</p>
+                            <p className="text-xs text-gray-500">{p.employee?.empId} · {MONTH_FULL[p.month - 1]} {p.year}</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge className={p.status === 'paid' ? 'bg-emerald-100 text-emerald-700 text-[10px]' : 'bg-amber-100 text-amber-700 text-[10px]'}>
+                              {p.status === 'paid' ? <CheckCircle2 className="w-3 h-3 mr-0.5" /> : <Timer className="w-3 h-3 mr-0.5" />}
+                              {p.status === 'paid' ? 'Paid' : 'Pending'}
+                            </Badge>
+                            {p.status === 'pending' && (
+                              <Button size="sm" variant="outline" className="h-7 text-[10px] rounded-lg" onClick={() => handleMarkPaid(p.id)}>
+                                Pay
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-xs">
+                          <div className="bg-gray-50 rounded-xl p-2 text-center">
+                            <p className="text-gray-500">Present</p>
+                            <p className="font-bold">{p.presentDays}/{p.workingDays}</p>
+                          </div>
+                          <div className="bg-emerald-50 rounded-xl p-2 text-center">
+                            <p className="text-emerald-600">OT</p>
+                            <p className="font-bold text-emerald-700">+₹{p.overtime.toLocaleString('en-IN')}</p>
+                          </div>
+                          <div className="bg-emerald-50 rounded-xl p-2 text-center">
+                            <p className="text-emerald-600">Net</p>
+                            <p className="font-bold text-emerald-700">₹{p.netSalary.toLocaleString('en-IN')}</p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
           {/* ===== EMPLOYEE: CHECK IN/OUT ===== */}
           {currentView === 'check-in-out' && !isAdmin && (
-            <div className="space-y-6 max-w-2xl mx-auto">
-              {/* Status Banner */}
-              <Card className={`border-0 shadow-sm ${todayStatus.checkedOut ? 'bg-gradient-to-r from-slate-50 to-slate-100' : todayStatus.checkedIn ? 'bg-gradient-to-r from-amber-50 to-amber-100/50' : 'bg-gradient-to-r from-emerald-50 to-teal-100/50'}`}>
-                <CardContent className="p-5">
-                  <div className="flex items-center gap-4">
-                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${todayStatus.checkedOut ? 'bg-slate-200' : todayStatus.checkedIn ? 'bg-amber-200' : 'bg-emerald-200'}`}>
-                      {todayStatus.checkedOut ? <CheckCircle2 className="w-7 h-7 text-slate-600" /> : todayStatus.checkedIn ? <Timer className="w-7 h-7 text-amber-600" /> : <Fingerprint className="w-7 h-7 text-emerald-600" />}
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-semibold">
-                        {todayStatus.checkedOut ? 'Day Complete!' : todayStatus.checkedIn ? 'Checked In' : 'Ready to Check In'}
-                      </h3>
-                      <p className="text-sm text-muted-foreground">
-                        {todayStatus.checkedOut
-                          ? `Work hours: ${todayStatus.attendance?.workHours?.toFixed(2)} hrs`
-                          : todayStatus.checkedIn
-                          ? `Since ${formatTime(todayStatus.attendance?.checkIn || null)}`
-                          : 'Click Check In to open camera & capture location'}
-                      </p>
-                    </div>
+            <div className="space-y-4">
+              {/* Status card */}
+              <div className={`rounded-2xl p-5 ${todayStatus.checkedOut ? 'bg-gradient-to-r from-gray-100 to-gray-200' : todayStatus.checkedIn ? 'bg-gradient-to-r from-amber-50 to-amber-100' : 'bg-gradient-to-r from-emerald-50 to-teal-100'}`}>
+                <div className="flex items-center gap-4">
+                  <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${todayStatus.checkedOut ? 'bg-gray-200' : todayStatus.checkedIn ? 'bg-amber-200' : 'bg-emerald-200'}`}>
+                    {todayStatus.checkedOut ? <CheckCircle2 className="w-8 h-8 text-gray-600" /> : todayStatus.checkedIn ? <Timer className="w-8 h-8 text-amber-600" /> : <Fingerprint className="w-8 h-8 text-emerald-600" />}
                   </div>
-                </CardContent>
-              </Card>
+                  <div>
+                    <h3 className="text-lg font-bold">
+                      {todayStatus.checkedOut ? 'Day Complete!' : todayStatus.checkedIn ? 'Checked In' : 'Ready to Check In'}
+                    </h3>
+                    <p className="text-sm text-gray-600">
+                      {todayStatus.checkedOut
+                        ? `Work hours: ${todayStatus.attendance?.workHours?.toFixed(2)} hrs`
+                        : todayStatus.checkedIn
+                        ? `Since ${formatTime(todayStatus.attendance?.checkIn || null)}`
+                        : 'Tap below to open camera & capture location'}
+                    </p>
+                  </div>
+                </div>
+              </div>
 
-              {/* ===== CHECK IN/OUT BUTTONS (initial state - no flow active) ===== */}
-              {!checkInFlow && !checkOutFlow && !todayStatus.checkedOut && (
-                <div className="grid grid-cols-2 gap-4">
-                  <Button
+              {/* Check In/Out buttons */}
+              {!todayStatus.checkedOut && (
+                <div className="grid grid-cols-2 gap-3">
+                  <button
                     onClick={startCheckInFlow}
                     disabled={isLoading || todayStatus.checkedIn}
-                    className="h-16 text-lg bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50 shadow-lg"
+                    className="h-20 rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition-all text-white disabled:opacity-40 disabled:active:scale-100 shadow-lg flex flex-col items-center justify-center gap-1"
                   >
-                    {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <UserCheck className="w-6 h-6 mr-2" />}
-                    Check In
-                  </Button>
-                  <Button
+                    {isLoading ? <Loader2 className="w-7 h-7 animate-spin" /> : <UserCheck className="w-7 h-7" />}
+                    <span className="text-sm font-bold">Check In</span>
+                  </button>
+                  <button
                     onClick={startCheckOutFlow}
                     disabled={isLoading || !todayStatus.checkedIn || todayStatus.checkedOut}
-                    className="h-16 text-lg bg-red-500 hover:bg-red-600 text-white disabled:opacity-50 shadow-lg"
+                    className="h-20 rounded-2xl bg-red-500 hover:bg-red-600 active:scale-95 transition-all text-white disabled:opacity-40 disabled:active:scale-100 shadow-lg flex flex-col items-center justify-center gap-1"
                   >
-                    {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <UserX className="w-6 h-6 mr-2" />}
-                    Check Out
-                  </Button>
+                    {isLoading ? <Loader2 className="w-7 h-7 animate-spin" /> : <UserX className="w-7 h-7" />}
+                    <span className="text-sm font-bold">Check Out</span>
+                  </button>
                 </div>
               )}
 
-              {/* ===== ACTIVE FLOW: Camera + Location ===== */}
-              {(checkInFlow || checkOutFlow) && (
-                <div className="space-y-4">
-                  {/* Flow header */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Badge className={checkInFlow ? 'bg-emerald-100 text-emerald-700 text-sm px-3 py-1' : 'bg-red-100 text-red-700 text-sm px-3 py-1'}>
-                        {checkInFlow ? <UserCheck className="w-4 h-4 mr-1" /> : <UserX className="w-4 h-4 mr-1" />}
-                        {checkInFlow ? 'Checking In...' : 'Checking Out...'}
-                      </Badge>
-                    </div>
-                    <Button variant="ghost" size="sm" onClick={cancelFlow} className="text-muted-foreground hover:text-red-500">
-                      <X className="w-4 h-4 mr-1" /> Cancel
-                    </Button>
-                  </div>
-
-                  {/* Step 1: Camera */}
-                  <Card className="border-0 shadow-sm border-l-4 border-l-emerald-500">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <Camera className="w-5 h-5 text-emerald-600" />
-                        Step 1: Capture Your Face
-                        {capturedPhoto && <CheckCircle2 className="w-5 h-5 text-emerald-500 ml-auto" />}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        <div className="relative bg-gray-900 rounded-xl overflow-hidden aspect-square max-w-sm mx-auto">
-                          {!cameraActive && !capturedPhoto && (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
-                              <Camera className="w-12 h-12 mb-2" />
-                              <p className="text-sm">Opening camera...</p>
-                              <Loader2 className="w-6 h-6 animate-spin mt-2" />
-                            </div>
-                          )}
-                          {cameraActive && (
-                            <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-                          )}
-                          {capturedPhoto && (
-                            <img src={capturedPhoto} alt="Captured" className="w-full h-full object-cover" />
-                          )}
-                          {cameraActive && (
-                            <div className="absolute inset-0 border-4 border-emerald-400/50 rounded-xl pointer-events-none">
-                              <div className="absolute top-4 left-4 w-8 h-8 border-t-2 border-l-2 border-emerald-400" />
-                              <div className="absolute top-4 right-4 w-8 h-8 border-t-2 border-r-2 border-emerald-400" />
-                              <div className="absolute bottom-4 left-4 w-8 h-8 border-b-2 border-l-2 border-emerald-400" />
-                              <div className="absolute bottom-4 right-4 w-8 h-8 border-b-2 border-r-2 border-emerald-400" />
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex gap-2 justify-center">
-                          {cameraActive && (
-                            <Button onClick={capturePhoto} size="lg" className="bg-emerald-600 hover:bg-emerald-700 text-white px-8">
-                              <Camera className="w-5 h-5 mr-2" /> Capture Photo
-                            </Button>
-                          )}
-                          {capturedPhoto && (
-                            <Button variant="outline" onClick={retakePhoto} size="lg">
-                              Retake Photo
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Step 2: Location */}
-                  <Card className="border-0 shadow-sm border-l-4 border-l-teal-500">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <MapPin className="w-5 h-5 text-teal-600" />
-                        Step 2: Live Location
-                        {currentLocation && <CheckCircle2 className="w-5 h-5 text-teal-500 ml-auto" />}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-3">
-                        {locationLoading && !currentLocation && (
-                          <div className="p-4 bg-teal-50 rounded-lg flex items-center gap-3">
-                            <Loader2 className="w-5 h-5 text-teal-600 animate-spin" />
-                            <div>
-                              <p className="text-sm font-medium text-teal-800">Fetching your location...</p>
-                              <p className="text-xs text-teal-600">Please allow location access</p>
-                            </div>
-                          </div>
-                        )}
-                        {currentLocation && (
-                          <div className="p-3 bg-teal-50 rounded-lg">
-                            <div className="flex items-start gap-2">
-                              <MapPin className="w-4 h-4 text-teal-600 mt-0.5 flex-shrink-0" />
-                              <div>
-                                <p className="text-sm font-medium text-teal-800">Location Captured</p>
-                                <p className="text-xs text-teal-600 mt-1">{currentLocation.address}</p>
-                                <p className="text-xs text-teal-500 mt-1">
-                                  Lat: {currentLocation.lat.toFixed(6)}, Lng: {currentLocation.lng.toFixed(6)}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                        {!locationLoading && !currentLocation && (
-                          <p className="text-sm text-muted-foreground">Getting location automatically...</p>
-                        )}
-                        <Button variant="outline" onClick={getLocation} disabled={locationLoading} className="w-full">
-                          {locationLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <MapPin className="w-4 h-4 mr-2" />}
-                          {currentLocation ? 'Refresh Location' : 'Retry Location'}
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Step 3: Confirm */}
-                  <Card className="border-0 shadow-sm border-l-4 border-l-emerald-600">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <Fingerprint className="w-5 h-5 text-emerald-600" />
-                        Step 3: Confirm {checkInFlow ? 'Check In' : 'Check Out'}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-3">
-                        {/* Checklist */}
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2 text-sm">
-                            {capturedPhoto ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <div className="w-4 h-4 rounded-full border-2 border-gray-300" />}
-                            <span className={capturedPhoto ? 'text-emerald-700' : 'text-muted-foreground'}>Face photo captured</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-sm">
-                            {currentLocation ? <CheckCircle2 className="w-4 h-4 text-teal-500" /> : <div className="w-4 h-4 rounded-full border-2 border-gray-300" />}
-                            <span className={currentLocation ? 'text-teal-700' : 'text-muted-foreground'}>Location captured</span>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3">
-                          <Button
-                            onClick={checkInFlow ? handleCheckIn : handleCheckOut}
-                            disabled={isLoading || !capturedPhoto}
-                            className={`h-14 text-base text-white shadow-lg disabled:opacity-50 ${checkInFlow ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-500 hover:bg-red-600'}`}
-                          >
-                            {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : checkInFlow ? <UserCheck className="w-5 h-5 mr-2" /> : <UserX className="w-5 h-5 mr-2" />}
-                            Confirm {checkInFlow ? 'Check In' : 'Check Out'}
-                          </Button>
-                          <Button variant="outline" onClick={cancelFlow} className="h-14 text-base">
-                            Cancel
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
-
-              {/* Already checked out - show completed state */}
+              {/* Completed state */}
               {todayStatus.checkedOut && (
                 <div className="text-center py-4">
-                  <CheckCircle2 className="w-16 h-16 mx-auto text-emerald-400 mb-3" />
-                  <h3 className="text-xl font-semibold text-emerald-700">Today Complete!</h3>
-                  <p className="text-muted-foreground mt-1">You have successfully checked out for today</p>
+                  <CheckCircle2 className="w-16 h-16 mx-auto text-emerald-400 mb-2" />
+                  <h3 className="text-lg font-bold text-emerald-700">Today Complete!</h3>
+                  <p className="text-sm text-gray-500">Successfully checked out</p>
                 </div>
               )}
 
-              {/* Today's Record */}
+              {/* Today's record */}
               {todayStatus.attendance && (
-                <Card className="border-0 shadow-sm">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Today&apos;s Record</CardTitle>
+                <Card className="rounded-2xl border-0 shadow-sm">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-semibold">Today&apos;s Record</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <p className="text-muted-foreground">Check In Time</p>
-                        <p className="font-medium">{formatTime(todayStatus.attendance.checkIn)}</p>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div className="bg-gray-50 rounded-xl p-3">
+                        <p className="text-[10px] text-gray-500 uppercase">Check In</p>
+                        <p className="font-semibold">{formatTime(todayStatus.attendance.checkIn)}</p>
                       </div>
-                      <div>
-                        <p className="text-muted-foreground">Check Out Time</p>
-                        <p className="font-medium">{formatTime(todayStatus.attendance.checkOut)}</p>
+                      <div className="bg-gray-50 rounded-xl p-3">
+                        <p className="text-[10px] text-gray-500 uppercase">Check Out</p>
+                        <p className="font-semibold">{formatTime(todayStatus.attendance.checkOut)}</p>
                       </div>
-                      <div>
-                        <p className="text-muted-foreground">Check In Location</p>
-                        <p className="font-medium text-xs truncate">{todayStatus.attendance.checkInAddr || '-'}</p>
+                      <div className="col-span-2 bg-gray-50 rounded-xl p-3">
+                        <p className="text-[10px] text-gray-500 uppercase">Location</p>
+                        <p className="text-xs truncate">{todayStatus.attendance.checkInAddr || '-'}</p>
                       </div>
-                      <div>
-                        <p className="text-muted-foreground">Check Out Location</p>
-                        <p className="font-medium text-xs truncate">{todayStatus.attendance.checkOutAddr || '-'}</p>
+                      <div className="bg-gray-50 rounded-xl p-3">
+                        <p className="text-[10px] text-gray-500 uppercase">Hours</p>
+                        <p className="font-semibold">{todayStatus.attendance.workHours?.toFixed(2) || '-'}h</p>
                       </div>
-                      <div>
-                        <p className="text-muted-foreground">Work Hours</p>
-                        <p className="font-medium">{todayStatus.attendance.workHours?.toFixed(2) || '-'} hrs</p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">Status</p>
-                        <Badge className={todayStatus.attendance.status === 'checked-out' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}>
-                          {todayStatus.attendance.status === 'checked-out' ? 'Completed' : 'Active'}
+                      <div className="bg-gray-50 rounded-xl p-3">
+                        <p className="text-[10px] text-gray-500 uppercase">Status</p>
+                        <Badge className={todayStatus.attendance.status === 'checked-out' ? 'bg-emerald-100 text-emerald-700 text-[10px]' : 'bg-amber-100 text-amber-700 text-[10px]'}>
+                          {todayStatus.attendance.status === 'checked-out' ? 'Complete' : 'Active'}
                         </Badge>
                       </div>
                     </div>
@@ -1735,114 +1496,159 @@ export default function HomePage() {
           {/* ===== EMPLOYEE: MY ATTENDANCE ===== */}
           {currentView === 'my-attendance' && !isAdmin && (
             <div className="space-y-4">
-              <div>
-                <h2 className="text-xl font-semibold">My Attendance</h2>
-                <p className="text-sm text-muted-foreground">{attendanceHistory.length} records found</p>
-              </div>
-              <Card className="border-0 shadow-sm">
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Check In</TableHead>
-                          <TableHead>Check Out</TableHead>
-                          <TableHead>Check In Location</TableHead>
-                          <TableHead>Work Hours</TableHead>
-                          <TableHead>Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {attendanceHistory.length === 0 ? (
-                          <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">No attendance records yet</TableCell></TableRow>
-                        ) : (
-                          attendanceHistory.map(r => (
-                            <TableRow key={r.id}>
-                              <TableCell className="font-medium">{formatDate(r.date)}</TableCell>
-                              <TableCell>{formatTime(r.checkIn)}</TableCell>
-                              <TableCell>{formatTime(r.checkOut)}</TableCell>
-                              <TableCell className="max-w-[200px] truncate text-xs text-muted-foreground">{r.checkInAddr || '-'}</TableCell>
-                              <TableCell>{r.workHours?.toFixed(1) || '-'} hrs</TableCell>
-                              <TableCell>
-                                <Badge className={r.status === 'checked-out' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}>
-                                  {r.status === 'checked-out' ? 'Completed' : 'Active'}
-                                </Badge>
-                              </TableCell>
-                            </TableRow>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CardContent>
-              </Card>
+              <h2 className="text-xl font-bold">My Attendance</h2>
+              <p className="text-sm text-gray-500">{attendanceHistory.length} records</p>
+              {attendanceHistory.length === 0 ? (
+                <Card className="rounded-2xl border-0 shadow-sm">
+                  <CardContent className="py-12 text-center">
+                    <Clock className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+                    <p className="text-gray-500">No records yet</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-2">
+                  {attendanceHistory.map(r => (
+                    <Card key={r.id} className="rounded-2xl border-0 shadow-sm">
+                      <CardContent className="p-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-semibold">{formatDate(r.date)}</p>
+                            <p className="text-xs text-gray-500">{formatTime(r.checkIn)} - {formatTime(r.checkOut)}</p>
+                            {r.checkInAddr && <p className="text-[10px] text-gray-400 truncate max-w-[200px] mt-0.5">📍 {r.checkInAddr}</p>}
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-bold">{r.workHours?.toFixed(1) || '-'}h</p>
+                            <Badge className={`${r.status === 'checked-out' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'} text-[10px]`}>
+                              {r.status === 'checked-out' ? 'Complete' : 'Active'}
+                            </Badge>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
           {/* ===== EMPLOYEE: MY PAYROLL ===== */}
           {currentView === 'my-payroll' && !isAdmin && (
             <div className="space-y-4">
-              <div>
-                <h2 className="text-xl font-semibold">My Payroll</h2>
-                <p className="text-sm text-muted-foreground">Your salary and payment details</p>
-              </div>
+              <h2 className="text-xl font-bold">My Payroll</h2>
               {payrollRecords.length === 0 ? (
-                <Card className="border-0 shadow-sm">
+                <Card className="rounded-2xl border-0 shadow-sm">
                   <CardContent className="py-12 text-center">
-                    <Wallet className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
-                    <p className="text-muted-foreground">No payroll records yet</p>
-                    <p className="text-sm text-muted-foreground mt-1">Payroll will be generated by admin at the end of each month</p>
+                    <Wallet className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+                    <p className="text-gray-500">No payroll records yet</p>
+                    <p className="text-xs text-gray-400 mt-1">Payroll will be generated by admin</p>
                   </CardContent>
                 </Card>
               ) : (
-                payrollRecords.map(p => (
-                  <Card key={p.id} className="border-0 shadow-sm">
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-base">{MONTH_FULL[p.month - 1]} {p.year}</CardTitle>
-                        <Badge className={p.status === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}>
-                          {p.status === 'paid' ? <CheckCircle2 className="w-3 h-3 mr-1" /> : <Timer className="w-3 h-3 mr-1" />}
-                          {p.status === 'paid' ? 'Paid' : 'Pending'}
-                        </Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="grid grid-cols-2 gap-3 text-sm">
-                        <div className="p-2 bg-gray-50 rounded">
-                          <p className="text-xs text-muted-foreground">Basic Salary</p>
-                          <p className="font-semibold">₹{p.basicSalary.toLocaleString('en-IN')}</p>
+                <div className="space-y-3">
+                  {payrollRecords.map(p => (
+                    <Card key={p.id} className="rounded-2xl border-0 shadow-sm">
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="font-bold">{MONTH_FULL[p.month - 1]} {p.year}</p>
+                          <Badge className={p.status === 'paid' ? 'bg-emerald-100 text-emerald-700 text-[10px]' : 'bg-amber-100 text-amber-700 text-[10px]'}>
+                            {p.status === 'paid' ? <CheckCircle2 className="w-3 h-3 mr-0.5" /> : <Timer className="w-3 h-3 mr-0.5" />}
+                            {p.status === 'paid' ? 'Paid' : 'Pending'}
+                          </Badge>
                         </div>
-                        <div className="p-2 bg-gray-50 rounded">
-                          <p className="text-xs text-muted-foreground">Working Days</p>
-                          <p className="font-semibold">{p.workingDays} days</p>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div className="bg-gray-50 rounded-xl p-2">
+                            <p className="text-gray-500">Basic</p>
+                            <p className="font-bold">₹{p.basicSalary.toLocaleString('en-IN')}</p>
+                          </div>
+                          <div className="bg-gray-50 rounded-xl p-2">
+                            <p className="text-gray-500">Days</p>
+                            <p className="font-bold">{p.presentDays}/{p.workingDays}</p>
+                          </div>
+                          <div className="bg-emerald-50 rounded-xl p-2">
+                            <p className="text-emerald-600">Overtime</p>
+                            <p className="font-bold text-emerald-700">+₹{p.overtime.toLocaleString('en-IN')}</p>
+                          </div>
+                          <div className="bg-red-50 rounded-xl p-2">
+                            <p className="text-red-500">Deductions</p>
+                            <p className="font-bold text-red-600">-₹{p.deductions.toLocaleString('en-IN')}</p>
+                          </div>
                         </div>
-                        <div className="p-2 bg-gray-50 rounded">
-                          <p className="text-xs text-muted-foreground">Present Days</p>
-                          <p className="font-semibold">{p.presentDays} days</p>
+                        <div className="mt-3 bg-emerald-100 rounded-xl p-3 text-center">
+                          <p className="text-xs text-emerald-600 font-medium">Net Salary</p>
+                          <p className="text-2xl font-bold text-emerald-700">₹{p.netSalary.toLocaleString('en-IN')}</p>
                         </div>
-                        <div className="p-2 bg-gray-50 rounded">
-                          <p className="text-xs text-muted-foreground">Overtime</p>
-                          <p className="font-semibold text-emerald-600">+₹{p.overtime.toLocaleString('en-IN')}</p>
-                        </div>
-                        <div className="p-2 bg-gray-50 rounded">
-                          <p className="text-xs text-muted-foreground">Deductions</p>
-                          <p className="font-semibold text-red-500">-₹{p.deductions.toLocaleString('en-IN')}</p>
-                        </div>
-                        <div className="p-2 bg-emerald-50 rounded">
-                          <p className="text-xs text-emerald-600">Net Salary</p>
-                          <p className="font-bold text-emerald-700 text-lg">₹{p.netSalary.toLocaleString('en-IN')}</p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
               )}
+            </div>
+          )}
+
+          {/* ===== EMPLOYEE: PROFILE ===== */}
+          {currentView === 'profile' && !isAdmin && (
+            <div className="space-y-4">
+              {/* Profile card */}
+              <Card className="rounded-2xl border-0 shadow-sm overflow-hidden">
+                <div className="bg-gradient-to-r from-emerald-600 to-teal-600 p-6 text-center">
+                  <Avatar className="w-20 h-20 mx-auto border-4 border-white/30">
+                    <AvatarFallback className="bg-white/20 text-white text-2xl font-bold">
+                      {user.name.split(' ').map(n => n[0]).join('')}
+                    </AvatarFallback>
+                  </Avatar>
+                  <h3 className="text-xl font-bold text-white mt-3">{user.name}</h3>
+                  <p className="text-emerald-100 text-sm">{user.empId} · {user.department}</p>
+                </div>
+                <CardContent className="p-4">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                      <span className="text-sm text-gray-500">Position</span>
+                      <span className="text-sm font-medium">{user.position}</span>
+                    </div>
+                    <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                      <span className="text-sm text-gray-500">Email</span>
+                      <span className="text-sm font-medium">{user.email}</span>
+                    </div>
+                    <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                      <span className="text-sm text-gray-500">Salary</span>
+                      <span className="text-sm font-bold text-emerald-600">₹{user.salary.toLocaleString('en-IN')}</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Quick actions */}
+              <Button onClick={handleLogout} variant="outline" className="w-full h-12 rounded-xl text-red-600 border-red-200 hover:bg-red-50 font-semibold">
+                <LogOut className="w-4 h-4 mr-2" /> Logout
+              </Button>
             </div>
           )}
         </div>
       </main>
-      <canvas ref={canvasRef} className="hidden" />
+
+      {/* Bottom Navigation */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-[0_-4px_20px_rgba(0,0,0,0.05)] safe-area-bottom z-40">
+        <div className="max-w-2xl mx-auto flex items-center justify-around h-16">
+          {tabs.map(tab => {
+            const Icon = tab.icon;
+            const isActive = currentView === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setCurrentView(tab.id)}
+                className={`flex flex-col items-center justify-center w-full h-full transition-all ${
+                  isActive ? 'text-emerald-600' : 'text-gray-400'
+                }`}
+              >
+                <div className={`p-1.5 rounded-xl transition-all ${isActive ? 'bg-emerald-50' : ''}`}>
+                  <Icon className={`w-5 h-5 ${isActive ? 'text-emerald-600' : ''}`} />
+                </div>
+                <span className={`text-[10px] mt-0.5 font-medium ${isActive ? 'text-emerald-600' : ''}`}>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
     </div>
   );
 }

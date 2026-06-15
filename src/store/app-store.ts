@@ -17,8 +17,6 @@ interface AppState {
   setUser: (user: User | null) => void;
   currentView: string;
   setCurrentView: (view: string) => void;
-  sidebarOpen: boolean;
-  setSidebarOpen: (open: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -26,6 +24,4 @@ export const useAppStore = create<AppState>((set) => ({
   setUser: (user) => set({ user }),
   currentView: 'dashboard',
   setCurrentView: (view) => set({ currentView: view }),
-  sidebarOpen: true,
-  setSidebarOpen: (open) => set({ sidebarOpen: open }),
 }));
