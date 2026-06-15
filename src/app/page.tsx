@@ -21,9 +21,9 @@ import {
   Camera, MapPin, Clock, Users, LogOut,
   UserCheck, UserX, Fingerprint, ArrowRight, Timer, Home,
   Wallet, UserPlus, Receipt, CheckCircle2, Loader2,
-  KeyRound, ShieldCheck, Sun, Moon, XCircle,
+  KeyRound, Sun, Moon, XCircle,
   CalendarDays, FileText, AlertCircle, Eye, ChevronDown,
-  BookOpen, X, Download, Smartphone, Shield, Zap,
+  BookOpen, X, Download, Smartphone, Zap,
   BarChart3, Globe, ChevronRight, Plane, Phone, Image as ImageIcon,
   IndianRupee, Send, TrendingUp, UsersRound, BadgeCheck, Menu,
 } from 'lucide-react';
@@ -260,70 +260,19 @@ export default function HomePage() {
   // ===== LOCATION =====
   const getLocation = async () => {
     setLocationLoading(true);
-    setLocationSpoofed(false);
-    setSpoofReason('');
     try {
       if (!navigator.geolocation) { toast({ title: 'Error', description: 'Geolocation not supported', variant: 'destructive' }); setLocationLoading(false); return; }
 
-      // Take multiple location readings for spoofing detection
-      const takeReading = (): Promise<GeolocationPosition> => {
-        return new Promise((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 15000 });
-        });
-      };
-
-      // First reading
-      let pos: GeolocationPosition;
-      try {
-        pos = await takeReading();
-      } catch {
+      const pos: GeolocationPosition = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 15000 });
+      }).catch(() => {
         toast({ title: 'Location Error', description: 'Allow location permission', variant: 'destructive' });
         setLocationLoading(false);
-        return;
-      }
+        return null;
+      });
 
-      // Run spoofing detection on first reading
-      const spoofCheck = detectLocationSpoofing(pos);
+      if (!pos) return;
 
-      // Take 2 more readings quickly for multi-sample analysis (only if first didn't detect spoofing)
-      if (!spoofCheck.spoofed) {
-        for (let i = 0; i < 2; i++) {
-          try {
-            const extraPos = await takeReading();
-            const extraCheck = detectLocationSpoofing(extraPos);
-            if (extraCheck.spoofed) {
-              setLocationSpoofed(true);
-              setSpoofReason(extraCheck.reason);
-              setCurrentLocation({ lat: extraPos.coords.latitude, lng: extraPos.coords.longitude, address: 'SPOOFED LOCATION DETECTED' });
-              setLocationLoading(false);
-              toast({ title: 'Location Spoofing Detected!', description: 'GPS spoofing or fake location app detected. Punch-in will be blocked.', variant: 'destructive', duration: 8000 });
-              return;
-            }
-          } catch { break; }
-        }
-      }
-
-      if (spoofCheck.spoofed) {
-        setLocationSpoofed(true);
-        setSpoofReason(spoofCheck.reason);
-        setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, address: 'SPOOFED LOCATION DETECTED' });
-        setLocationLoading(false);
-        toast({ title: 'Location Spoofing Detected!', description: 'GPS spoofing or fake location app detected. Punch-in will be blocked.', variant: 'destructive', duration: 8000 });
-        return;
-      }
-
-      // Server-side IP geolocation verification
-      const ipCheck = await checkIpGeolocation(pos.coords.latitude, pos.coords.longitude);
-      if (ipCheck.spoofed) {
-        setLocationSpoofed(true);
-        setSpoofReason(ipCheck.reason);
-        setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, address: 'SPOOFED - IP MISMATCH DETECTED' });
-        setLocationLoading(false);
-        toast({ title: 'Location Spoofing Detected!', description: ipCheck.reason, variant: 'destructive', duration: 8000 });
-        return;
-      }
-
-      // Location is genuine
       let addr = `${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`;
       try { const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.coords.latitude}&lon=${pos.coords.longitude}`); const d = await r.json(); if (d.display_name) addr = d.display_name; } catch {}
       setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, address: addr });
@@ -346,10 +295,9 @@ export default function HomePage() {
 
   const handleCheckIn = async () => {
     if (!user || !capturedPhoto) { toast({ title: 'Photo Required', variant: 'destructive' }); return; }
-    if (locationSpoofed) { toast({ title: '❌ Punch In Blocked!', description: 'GPS spoofing detected! Turn off fake location app to punch in.', variant: 'destructive', duration: 8000 }); return; }
     setIsLoading(true);
     try {
-      const body: any = { employeeId: user.id, photo: capturedPhoto, locationSpoofed: false };
+      const body: any = { employeeId: user.id, photo: capturedPhoto };
       if (currentLocation) { body.latitude = currentLocation.lat; body.longitude = currentLocation.lng; body.address = currentLocation.address; }
       const res = await fetch('/api/attendance/check-in', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const data = await res.json();
@@ -363,10 +311,9 @@ export default function HomePage() {
 
   const handleCheckOut = async () => {
     if (!user || !capturedPhoto) { toast({ title: 'Photo Required', variant: 'destructive' }); return; }
-    if (locationSpoofed) { toast({ title: '❌ Punch Out Blocked!', description: 'GPS spoofing detected! Turn off fake location app to punch out.', variant: 'destructive', duration: 8000 }); return; }
     setIsLoading(true);
     try {
-      const body: any = { employeeId: user.id, photo: capturedPhoto, locationSpoofed: false };
+      const body: any = { employeeId: user.id, photo: capturedPhoto };
       if (currentLocation) { body.latitude = currentLocation.lat; body.longitude = currentLocation.lng; body.address = currentLocation.address; }
       const res = await fetch('/api/attendance/check-out', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const data = await res.json();
@@ -583,98 +530,7 @@ export default function HomePage() {
     }
   };
 
-  // ===== GPS SPOOFING DETECTION =====
-  const [locationSpoofed, setLocationSpoofed] = useState(false);
-  const [spoofReason, setSpoofReason] = useState('');
-  const locationReadings = useRef<{lat: number; lng: number; accuracy: number; timestamp: number}[]>([]);
 
-  const detectLocationSpoofing = (pos: GeolocationPosition): { spoofed: boolean; reason: string } => {
-    // Store reading for multi-sample analysis
-    const reading = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, timestamp: pos.timestamp };
-    locationReadings.current.push(reading);
-    // Keep only last 5 readings
-    if (locationReadings.current.length > 5) locationReadings.current.shift();
-
-    // 1. Check if Android provides isMocked flag (Chrome 86+ on Android)
-    const posAny = pos as any;
-    if (posAny.mocked !== undefined && posAny.mocked === true) {
-      return { spoofed: true, reason: 'Mock location provider detected by device. GPS spoofing confirmed.' };
-    }
-
-    // 2. Accuracy checks
-    if (pos.coords.accuracy === 0) {
-      return { spoofed: true, reason: 'Location accuracy is zero. GPS spoofing detected.' };
-    }
-    if (pos.coords.accuracy < 0.5) {
-      return { spoofed: true, reason: 'Location accuracy is impossibly perfect (< 0.5m). Fake GPS app detected.' };
-    }
-
-    // 3. Timestamp check - spoofed locations may have stale/future timestamps
-    const timeDiff = Math.abs(Date.now() - pos.timestamp);
-    if (timeDiff > 60000) {
-      return { spoofed: true, reason: 'Location data is too old (>60s). Possible GPS spoofing.' };
-    }
-
-    // 4. Multi-sample analysis - Real GPS always has small variations even standing still
-    // Spoofed GPS gives EXACT same coordinates every time
-    if (locationReadings.current.length >= 3) {
-      const readings = locationReadings.current;
-      let identicalCount = 0;
-      for (let i = 1; i < readings.length; i++) {
-        const latDiff = Math.abs(readings[i].lat - readings[0].lat);
-        const lngDiff = Math.abs(readings[i].lng - readings[0].lng);
-        // If coordinates are EXACTLY the same (no variation at all) = spoofed
-        if (latDiff === 0 && lngDiff === 0) {
-          identicalCount++;
-        }
-      }
-      // If 2+ readings are EXACTLY identical, it's almost certainly spoofed
-      if (identicalCount >= 2) {
-        return { spoofed: true, reason: 'Location coordinates are exactly identical across multiple readings. Fake GPS app detected.' };
-      }
-
-      // Check for zero natural variation (real GPS has micro-variations)
-      const allLatSame = readings.every(r => r.lat === readings[0].lat);
-      const allLngSame = readings.every(r => r.lng === readings[0].lng);
-      const allAccSame = readings.every(r => r.accuracy === readings[0].accuracy);
-      if (allLatSame && allLngSame && allAccSame && readings.length >= 3) {
-        return { spoofed: true, reason: 'GPS data has zero natural variation. Location changer app detected.' };
-      }
-    }
-
-    // 5. Check if altitude is null on mobile (real GPS on mobile usually provides altitude)
-    // This is a soft signal - not definitive alone
-    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    if (isMobile && pos.coords.altitude === null && pos.coords.speed === null && pos.coords.heading === null) {
-      // On mobile, real GPS usually provides at least some of these
-      // If ALL are null, it's suspicious but not definitive
-      // We'll flag it as a warning if we have multiple readings
-      if (locationReadings.current.length >= 3) {
-        const allNoAlt = locationReadings.current.every(r => true); // already checked above
-        // Soft detection - combine with other signals
-      }
-    }
-
-    return { spoofed: false, reason: '' };
-  };
-
-  // Server-side IP geolocation check
-  const checkIpGeolocation = async (gpsLat: number, gpsLng: number): Promise<{ spoofed: boolean; reason: string }> => {
-    try {
-      const res = await fetch('/api/verify-location', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lat: gpsLat, lng: gpsLng }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.spoofed) {
-          return { spoofed: true, reason: data.reason };
-        }
-      }
-    } catch {}
-    return { spoofed: false, reason: '' };
-  };
 
   // ========== HOME SCREEN (not logged in) ==========
   if (!user) {
@@ -743,9 +599,8 @@ export default function HomePage() {
 
         {/* Features Grid */}
         <div className="px-6 pb-8">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 max-w-3xl mx-auto">
+          <div className="grid grid-cols-2 md:grid-cols-2 gap-3 max-w-3xl mx-auto">
             {[
-              { icon: Shield, title: 'Anti-Spoof GPS', desc: 'Detects fake location apps & blocks punch-in with GPS spoofing detection' },
               { icon: Zap, title: 'Instant Pay Slips', desc: 'Generate and view salary slips with one click' },
               { icon: TrendingUp, title: 'Smart Analytics', desc: 'Real-time dashboard with attendance & payroll insights' },
             ].map((f, i) => (
@@ -887,22 +742,15 @@ export default function HomePage() {
         </div>
         <div className="bg-black/90 px-5 py-4 space-y-3 safe-area-bottom">
           {locationLoading && !currentLocation && <div className="flex items-center gap-2 text-blue-300 text-sm"><Loader2 className="w-4 h-4 animate-spin" /><span>Getting location...</span></div>}
-          {currentLocation && !locationSpoofed && <div className="flex items-start gap-2 text-blue-300 text-xs"><MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" /><span className="line-clamp-2">{currentLocation.address}</span></div>}
-          {locationSpoofed && (
-            <div className="p-3 bg-red-900/80 border border-red-500 rounded-xl">
-              <div className="flex items-center gap-2 text-red-300 text-sm font-bold"><ShieldCheck className="w-5 h-5" /> GPS Spoofing Detected!</div>
-              <p className="text-red-400 text-xs mt-1">{spoofReason}</p>
-              <p className="text-red-300 text-xs mt-1 font-semibold">Turn off your fake location app to punch in.</p>
-            </div>
-          )}
+          {currentLocation && <div className="flex items-start gap-2 text-blue-300 text-xs"><MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" /><span className="line-clamp-2">{currentLocation.address}</span></div>}
           <div className="flex gap-3">
             {cameraActive && !capturedPhoto && <Button onClick={capturePhoto} className="flex-1 h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-lg font-bold shadow-xl"><Camera className="w-6 h-6 mr-2" /> Capture</Button>}
             {capturedPhoto && (
               <>
                 <Button variant="outline" onClick={retakePhoto} className="flex-1 h-14 rounded-2xl text-base font-semibold border-white/30 text-white hover:bg-white/10">Retake</Button>
-                <Button onClick={checkInFlow ? handleCheckIn : handleCheckOut} disabled={isLoading || locationSpoofed} className={`flex-1 h-14 rounded-2xl text-lg font-bold shadow-xl text-white ${locationSpoofed ? 'bg-gray-600 cursor-not-allowed opacity-50' : checkInFlow ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-500 hover:bg-red-600'}`}>
-                  {locationSpoofed ? <ShieldCheck className="w-6 h-6 mr-2" /> : isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : checkInFlow ? <UserCheck className="w-6 h-6 mr-2" /> : <UserX className="w-6 h-6 mr-2" />}
-                  {locationSpoofed ? 'Blocked' : 'Submit'}
+                <Button onClick={checkInFlow ? handleCheckIn : handleCheckOut} disabled={isLoading} className={`flex-1 h-14 rounded-2xl text-lg font-bold shadow-xl text-white ${checkInFlow ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-500 hover:bg-red-600'}`}>
+                  {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : checkInFlow ? <UserCheck className="w-6 h-6 mr-2" /> : <UserX className="w-6 h-6 mr-2" />}
+                  Submit
                 </Button>
               </>
             )}
