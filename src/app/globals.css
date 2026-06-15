@@ -160,18 +160,9 @@ button:active:not(:disabled) {
   scrollbar-width: none;
 }
 
-/* Desktop layout - allow body scroll */
-@media (min-width: 1024px) {
-  html, body {
-    overflow: auto;
-    height: auto;
-  }
-}
-
-/* Mobile layout - fixed viewport */
-@media (max-width: 1023px) {
-  html, body {
-    overflow: hidden;
-    height: 100%;
-  }
+/* Allow scrolling on all devices */
+html, body {
+  overflow: auto;
+  height: auto;
+  -webkit-overflow-scrolling: touch;
 }

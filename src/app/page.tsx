@@ -724,7 +724,7 @@ export default function HomePage() {
   const tabs = isAdmin ? adminTabs : empTabs;
 
   const renderSidebar = () => (
-    <aside className={`hidden lg:flex flex-col w-64 h-screen sticky top-0 border-r ${dm ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
+    <aside className={`hidden lg:flex flex-col w-64 min-h-screen border-r ${dm ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
       <div className={`p-4 flex items-center gap-3 border-b ${dm ? 'border-gray-800' : 'border-gray-200'}`}>
         <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
           <BookOpen className="w-5 h-5 text-white" />
@@ -1485,7 +1485,7 @@ export default function HomePage() {
       </div>
 
       {/* Content Area */}
-      <main className={`flex-1 overflow-auto lg:h-screen lg:overflow-y-auto pb-20 lg:pb-4 ${dm ? 'bg-gray-950' : 'bg-gray-50'}`}>
+      <main className={`flex-1 pb-24 lg:pb-4 ${dm ? 'bg-gray-950' : 'bg-gray-50'}`}>
         <div className="px-4 py-4 max-w-4xl mx-auto">
           {renderContent()}
         </div>
