@@ -25,7 +25,7 @@ import {
   Camera, MapPin, Clock, Users, LogOut,
   UserCheck, UserX, Fingerprint, ArrowRight, Timer, Home,
   Wallet, UserPlus, Receipt, CheckCircle2, Loader2,
-  Menu, X, Smartphone, KeyRound, ShieldCheck,
+  Menu, X, Smartphone, KeyRound, ShieldCheck, Mail,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
@@ -107,8 +107,9 @@ export default function HomePage() {
   // Login
   const [loginEmpId, setLoginEmpId] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-  const [loginMethod, setLoginMethod] = useState<'empid' | 'otp'>('otp');
+  const [loginMethod, setLoginMethod] = useState<'email-otp' | 'otp' | 'empid'>('email-otp');
   const [otpPhone, setOtpPhone] = useState('');
+  const [otpEmail, setOtpEmail] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [otpVerified, setOtpVerified] = useState(false);
@@ -263,31 +264,61 @@ export default function HomePage() {
 
   // ===== OTP LOGIN =====
   const handleSendOtp = async () => {
-    if (!otpPhone) {
-      toast({ title: 'Error', description: 'Please enter your phone number', variant: 'destructive' });
-      return;
-    }
-    setIsLoading(true);
-    try {
-      const res = await fetch('/api/auth/send-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: otpPhone }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setOtpSent(true);
-        setOtpTimer(60);
-        setDemoOtp(data.demoOtp);
-        setOtpUserName(data.name);
-        toast({ title: 'OTP Sent!', description: `OTP sent to ${otpPhone}` });
-      } else {
-        toast({ title: 'Error', description: data.error, variant: 'destructive' });
+    if (loginMethod === 'email-otp') {
+      // Email OTP
+      if (!otpEmail) {
+        toast({ title: 'Error', description: 'Please enter your email address', variant: 'destructive' });
+        return;
       }
-    } catch {
-      toast({ title: 'Error', description: 'Failed to send OTP', variant: 'destructive' });
+      setIsLoading(true);
+      try {
+        const res = await fetch('/api/auth/send-email-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: otpEmail }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setOtpSent(true);
+          setOtpTimer(60);
+          setDemoOtp(data.demoOtp);
+          setOtpUserName(data.name);
+          toast({ title: 'OTP Sent!', description: `OTP sent to ${otpEmail}` });
+        } else {
+          toast({ title: 'Error', description: data.error, variant: 'destructive' });
+        }
+      } catch {
+        toast({ title: 'Error', description: 'Failed to send OTP', variant: 'destructive' });
+      }
+      setIsLoading(false);
+    } else {
+      // Phone OTP
+      if (!otpPhone) {
+        toast({ title: 'Error', description: 'Please enter your phone number', variant: 'destructive' });
+        return;
+      }
+      setIsLoading(true);
+      try {
+        const res = await fetch('/api/auth/send-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: otpPhone }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setOtpSent(true);
+          setOtpTimer(60);
+          setDemoOtp(data.demoOtp);
+          setOtpUserName(data.name);
+          toast({ title: 'OTP Sent!', description: `OTP sent to ${otpPhone}` });
+        } else {
+          toast({ title: 'Error', description: data.error, variant: 'destructive' });
+        }
+      } catch {
+        toast({ title: 'Error', description: 'Failed to send OTP', variant: 'destructive' });
+      }
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   const handleVerifyOtp = async () => {
@@ -297,10 +328,16 @@ export default function HomePage() {
     }
     setIsLoading(true);
     try {
-      const res = await fetch('/api/auth/verify-otp', {
+      const isEmailOtp = loginMethod === 'email-otp';
+      const url = isEmailOtp ? '/api/auth/verify-email-otp' : '/api/auth/verify-otp';
+      const body = isEmailOtp
+        ? { email: otpEmail, otp: otpCode }
+        : { phone: otpPhone, otp: otpCode };
+
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: otpPhone, otp: otpCode }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (res.ok) {
@@ -322,6 +359,7 @@ export default function HomePage() {
     setOtpCode('');
     setDemoOtp('');
     setOtpTimer(0);
+    setOtpUserName('');
   };
 
   // ===== CAMERA =====
@@ -616,6 +654,7 @@ export default function HomePage() {
     setDemoOtp('');
     setOtpTimer(0);
     setOtpPhone('');
+    setOtpEmail('');
     setLoginEmpId('');
     setLoginPassword('');
     stopCamera();
@@ -642,20 +681,112 @@ export default function HomePage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Tabs value={loginMethod} onValueChange={v => { setLoginMethod(v as 'empid' | 'otp'); resetOtpFlow(); }} className="w-full">
-              <TabsList className="grid w-full grid-cols-2 mb-4">
-                <TabsTrigger value="otp" className="flex items-center gap-1.5 text-sm">
-                  <Smartphone className="w-4 h-4" /> Phone + OTP
+            <Tabs value={loginMethod} onValueChange={v => { setLoginMethod(v as 'email-otp' | 'otp' | 'empid'); resetOtpFlow(); }} className="w-full">
+              <TabsList className="grid w-full grid-cols-3 mb-4">
+                <TabsTrigger value="email-otp" className="flex items-center gap-1 text-xs sm:text-sm">
+                  <Mail className="w-3.5 h-3.5" /> Email
                 </TabsTrigger>
-                <TabsTrigger value="empid" className="flex items-center gap-1.5 text-sm">
-                  <KeyRound className="w-4 h-4" /> Emp ID
+                <TabsTrigger value="otp" className="flex items-center gap-1 text-xs sm:text-sm">
+                  <Smartphone className="w-3.5 h-3.5" /> Phone
+                </TabsTrigger>
+                <TabsTrigger value="empid" className="flex items-center gap-1 text-xs sm:text-sm">
+                  <KeyRound className="w-3.5 h-3.5" /> Emp ID
                 </TabsTrigger>
               </TabsList>
 
-              {/* ===== OTP LOGIN TAB ===== */}
+              {/* ===== EMAIL OTP LOGIN TAB ===== */}
+              <TabsContent value="email-otp" className="space-y-4 mt-0">
+                {!otpSent ? (
+                  <div className="space-y-4">
+                    <div className="p-3 bg-emerald-50 rounded-lg flex items-start gap-2">
+                      <Mail className="w-4 h-4 text-emerald-600 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs font-medium text-emerald-800">Free Email OTP Login</p>
+                        <p className="text-[10px] text-emerald-600 mt-0.5">No SMS charges! OTP sent to your email</p>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="otpEmail">Email Address</Label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input
+                          id="otpEmail"
+                          type="email"
+                          placeholder="rahul@company.com"
+                          value={otpEmail}
+                          onChange={e => setOtpEmail(e.target.value)}
+                          className="h-11 pl-10"
+                          onKeyDown={e => e.key === 'Enter' && handleSendOtp()}
+                        />
+                      </div>
+                    </div>
+                    <Button
+                      onClick={handleSendOtp}
+                      className="w-full h-11 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg"
+                      disabled={isLoading}
+                    >
+                      {isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
+                      Send OTP to Email
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="p-3 bg-emerald-50 rounded-lg text-center">
+                      <p className="text-sm text-emerald-800">OTP sent to <span className="font-bold">{otpEmail}</span></p>
+                      {otpUserName && <p className="text-xs text-emerald-600 mt-1">Account: {otpUserName}</p>}
+                    </div>
+
+                    {demoOtp && (
+                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-center">
+                        <p className="text-xs text-amber-700 font-medium">Demo Mode - Your OTP:</p>
+                        <p className="text-2xl font-bold text-amber-800 tracking-[0.3em] mt-1">{demoOtp}</p>
+                        <p className="text-[10px] text-amber-600 mt-1">In production, OTP will be sent to your email</p>
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <Label htmlFor="emailOtpCode">Enter 6-digit OTP</Label>
+                      <Input
+                        id="emailOtpCode"
+                        placeholder="000000"
+                        value={otpCode}
+                        onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        className="h-14 text-center text-2xl tracking-[0.5em] font-mono"
+                        maxLength={6}
+                        onKeyDown={e => e.key === 'Enter' && otpCode.length === 6 && handleVerifyOtp()}
+                      />
+                    </div>
+
+                    <Button
+                      onClick={handleVerifyOtp}
+                      className="w-full h-11 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white shadow-lg"
+                      disabled={isLoading || otpCode.length !== 6}
+                    >
+                      {isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
+                      Verify & Login
+                    </Button>
+
+                    <div className="flex items-center justify-between text-sm">
+                      <Button variant="ghost" size="sm" onClick={resetOtpFlow} className="text-muted-foreground">
+                        Change Email
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleSendOtp}
+                        disabled={otpTimer > 0}
+                        className="text-emerald-600"
+                      >
+                        {otpTimer > 0 ? `Resend in ${otpTimer}s` : 'Resend OTP'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* ===== PHONE OTP LOGIN TAB ===== */}
               <TabsContent value="otp" className="space-y-4 mt-0">
                 {!otpSent ? (
-                  /* Step 1: Enter Phone */
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <Label htmlFor="otpPhone">Phone Number</Label>
@@ -681,17 +812,15 @@ export default function HomePage() {
                     </Button>
                   </div>
                 ) : (
-                  /* Step 2: Enter OTP */
                   <div className="space-y-4">
                     <div className="p-3 bg-emerald-50 rounded-lg text-center">
                       <p className="text-sm text-emerald-800">OTP sent to <span className="font-bold">{otpPhone}</span></p>
                       {otpUserName && <p className="text-xs text-emerald-600 mt-1">Account: {otpUserName}</p>}
                     </div>
 
-                    {/* Demo OTP Banner */}
                     {demoOtp && (
                       <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-center">
-                        <p className="text-xs text-amber-700 font-medium">🔑 Demo Mode - Your OTP:</p>
+                        <p className="text-xs text-amber-700 font-medium">Demo Mode - Your OTP:</p>
                         <p className="text-2xl font-bold text-amber-800 tracking-[0.3em] mt-1">{demoOtp}</p>
                         <p className="text-[10px] text-amber-600 mt-1">In production, OTP will be sent via SMS</p>
                       </div>
@@ -776,9 +905,9 @@ export default function HomePage() {
             <div className="mt-4 p-3 bg-muted/50 rounded-lg">
               <p className="text-xs text-muted-foreground font-medium mb-2">Demo Credentials:</p>
               <div className="text-xs text-muted-foreground space-y-1">
-                <p><span className="font-medium">📱 OTP Login:</span> +91-9876543211 (Rahul)</p>
+                <p><span className="font-medium">📧 Email OTP:</span> rahul@company.com</p>
+                <p><span className="font-medium">📱 Phone OTP:</span> +91-9876543211</p>
                 <p><span className="font-medium">🔑 Emp ID:</span> ADMIN001 / admin123</p>
-                <p><span className="font-medium">🔑 Emp ID:</span> EMP001 / emp123</p>
               </div>
             </div>
           </CardContent>

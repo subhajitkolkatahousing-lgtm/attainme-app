@@ -1,5 +1,5 @@
 // Shared OTP store using globalThis to ensure the same Map instance
-// is shared across different API route handlers (send-otp & verify-otp)
+// is shared across different API route handlers
 
 interface OtpEntry {
   otp: string;
@@ -19,20 +19,21 @@ if (process.env.NODE_ENV !== 'production') {
   globalForOtp.__otpStore = otpStore;
 }
 
-export function setOtp(phone: string, otp: string, expiresInMs: number = 5 * 60 * 1000) {
-  otpStore.set(phone, { otp, expires: Date.now() + expiresInMs, attempts: 0 });
+// Key can be phone number OR email address
+export function setOtp(key: string, otp: string, expiresInMs: number = 5 * 60 * 1000) {
+  otpStore.set(key, { otp, expires: Date.now() + expiresInMs, attempts: 0 });
 }
 
-export function getOtp(phone: string): OtpEntry | undefined {
-  return otpStore.get(phone);
+export function getOtp(key: string): OtpEntry | undefined {
+  return otpStore.get(key);
 }
 
-export function deleteOtp(phone: string) {
-  otpStore.delete(phone);
+export function deleteOtp(key: string) {
+  otpStore.delete(key);
 }
 
-export function incrementAttempts(phone: string): number {
-  const entry = otpStore.get(phone);
+export function incrementAttempts(key: string): number {
+  const entry = otpStore.get(key);
   if (entry) {
     entry.attempts += 1;
     return entry.attempts;
