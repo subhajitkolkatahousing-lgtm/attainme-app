@@ -259,9 +259,22 @@ export default function HomePage() {
   // ===== LOCATION =====
   const getLocation = async () => {
     setLocationLoading(true);
+    setLocationSpoofed(false);
+    setSpoofReason('');
     try {
       if (!navigator.geolocation) { toast({ title: 'Error', description: 'Geolocation not supported', variant: 'destructive' }); setLocationLoading(false); return; }
       navigator.geolocation.getCurrentPosition(async (pos) => {
+        // GPS Spoofing Detection
+        const spoofCheck = detectLocationSpoofing(pos);
+        if (spoofCheck.spoofed) {
+          setLocationSpoofed(true);
+          setSpoofReason(spoofCheck.reason);
+          setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, address: '⚠️ SPOOFED LOCATION DETECTED' });
+          setLocationLoading(false);
+          toast({ title: '⚠️ Location Spoofing Detected!', description: 'GPS spoofing or fake location app detected. Punch-in will be blocked.', variant: 'destructive', duration: 8000 });
+          return;
+        }
+
         let addr = `${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`;
         try { const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.coords.latitude}&lon=${pos.coords.longitude}`); const d = await r.json(); if (d.display_name) addr = d.display_name; } catch {}
         setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, address: addr }); setLocationLoading(false);
@@ -284,9 +297,10 @@ export default function HomePage() {
 
   const handleCheckIn = async () => {
     if (!user || !capturedPhoto) { toast({ title: 'Photo Required', variant: 'destructive' }); return; }
+    if (locationSpoofed) { toast({ title: '❌ Punch In Blocked!', description: 'GPS spoofing detected! Turn off fake location app to punch in.', variant: 'destructive', duration: 8000 }); return; }
     setIsLoading(true);
     try {
-      const body: any = { employeeId: user.id, photo: capturedPhoto };
+      const body: any = { employeeId: user.id, photo: capturedPhoto, locationSpoofed: false };
       if (currentLocation) { body.latitude = currentLocation.lat; body.longitude = currentLocation.lng; body.address = currentLocation.address; }
       const res = await fetch('/api/attendance/check-in', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const data = await res.json();
@@ -300,9 +314,10 @@ export default function HomePage() {
 
   const handleCheckOut = async () => {
     if (!user || !capturedPhoto) { toast({ title: 'Photo Required', variant: 'destructive' }); return; }
+    if (locationSpoofed) { toast({ title: '❌ Punch Out Blocked!', description: 'GPS spoofing detected! Turn off fake location app to punch out.', variant: 'destructive', duration: 8000 }); return; }
     setIsLoading(true);
     try {
-      const body: any = { employeeId: user.id, photo: capturedPhoto };
+      const body: any = { employeeId: user.id, photo: capturedPhoto, locationSpoofed: false };
       if (currentLocation) { body.latitude = currentLocation.lat; body.longitude = currentLocation.lng; body.address = currentLocation.address; }
       const res = await fetch('/api/attendance/check-out', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const data = await res.json();
@@ -498,15 +513,84 @@ export default function HomePage() {
     } catch {}
   };
 
+  // ===== INSTALL APP (APK Download) =====
+  const handleInstallApp = async () => {
+    try {
+      // First try PWA install prompt if available
+      const deferredPrompt = (window as any).deferredInstallPrompt;
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        (window as any).deferredInstallPrompt = null;
+        if (outcome === 'accepted') {
+          toast({ title: 'App Installed!', description: 'AttendanceKhata has been added to your home screen' });
+          return;
+        }
+      }
+
+      // Otherwise, generate and download APK
+      toast({ title: 'Preparing APK...', description: 'Generating your app package' });
+      const res = await fetch('/api/generate-apk');
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'AttendanceKhata.apk';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        toast({ title: 'Download Started!', description: 'AttendanceKhata.apk is downloading' });
+      } else {
+        // Fallback: try PWA install
+        toast({ title: 'Install App', description: 'Use "Add to Home Screen" from browser menu to install the app' });
+      }
+    } catch {
+      toast({ title: 'Install App', description: 'Use "Add to Home Screen" from browser menu to install the app' });
+    }
+  };
+
+  // ===== GPS SPOOFING DETECTION =====
+  const [locationSpoofed, setLocationSpoofed] = useState(false);
+  const [spoofReason, setSpoofReason] = useState('');
+
+  const detectLocationSpoofing = (pos: GeolocationPosition): { spoofed: boolean; reason: string } => {
+    // 1. Check accuracy - spoofed locations often have very low accuracy or suspiciously perfect accuracy
+    if (pos.coords.accuracy < 1) {
+      return { spoofed: true, reason: 'Location accuracy is suspiciously perfect. Possible GPS spoofing detected.' };
+    }
+
+    // 2. Check if altitude and speed are unavailable (common with mock locations)
+    // Real GPS usually provides altitude on mobile devices
+    const hasAltitude = pos.coords.altitude !== null;
+    const hasSpeed = pos.coords.speed !== null;
+    const hasHeading = pos.coords.heading !== null;
+
+    // 3. Check timestamp - spoofed locations may have old or future timestamps
+    const timeDiff = Math.abs(Date.now() - pos.timestamp);
+    if (timeDiff > 30000) { // More than 30 seconds old
+      return { spoofed: true, reason: 'Location data is too old. Possible GPS spoofing detected.' };
+    }
+
+    // 4. Check for mock location provider (Android Chrome)
+    // The accuracy being exactly 0 or a very specific number can indicate mock
+    if (pos.coords.accuracy === 0) {
+      return { spoofed: true, reason: 'Location accuracy is zero. GPS spoofing detected.' };
+    }
+
+    return { spoofed: false, reason: '' };
+  };
+
   // ========== HOME SCREEN (not logged in) ==========
   if (!user) {
     return (
-      <div className={`${darkMode ? 'bg-gray-950' : 'bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800'}`}>
+      <div className={`min-h-screen overflow-y-auto ${darkMode ? 'bg-gray-950' : 'bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800'}`}>
         <video ref={videoRef} autoPlay playsInline muted className="hidden" />
         <canvas ref={canvasRef} className="hidden" />
 
         {/* Header */}
-        <header className="px-4 py-3 flex items-center justify-between">
+        <header className="sticky top-0 z-30 px-4 py-3 flex items-center justify-between backdrop-blur-md bg-black/10">
           <div className="flex items-center gap-2">
             <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
               <BookOpen className="w-5 h-5 text-white" />
@@ -517,7 +601,7 @@ export default function HomePage() {
             <button onClick={() => setDarkMode(!darkMode)} className={`w-9 h-9 rounded-full flex items-center justify-center ${darkMode ? 'bg-gray-800 text-yellow-400' : 'bg-white/20 text-white'} backdrop-blur-sm transition-all`}>
               {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
-            <Button className="bg-white text-blue-700 hover:bg-blue-50 rounded-xl h-9 font-bold text-sm shadow-lg">
+            <Button onClick={handleInstallApp} className="bg-white text-blue-700 hover:bg-blue-50 rounded-xl h-9 font-bold text-sm shadow-lg">
               <Download className="w-4 h-4 mr-1" /> Install App
             </Button>
           </div>
@@ -552,9 +636,9 @@ export default function HomePage() {
 
           {/* App Download CTA */}
           <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
-            <button className="inline-flex items-center justify-center gap-2 bg-black text-white px-6 py-3 rounded-xl font-semibold hover:bg-gray-900 transition-all shadow-xl">
+            <button onClick={handleInstallApp} className="inline-flex items-center justify-center gap-2 bg-black text-white px-6 py-3 rounded-xl font-semibold hover:bg-gray-900 transition-all shadow-xl">
               <Smartphone className="w-5 h-5" />
-              <div className="text-left"><span className="text-[10px] block leading-tight opacity-80">Download on</span><span className="text-sm leading-tight">Mobile App</span></div>
+              <div className="text-left"><span className="text-[10px] block leading-tight opacity-80">Download</span><span className="text-sm leading-tight">APK File</span></div>
             </button>
             <button className="inline-flex items-center justify-center gap-2 bg-white/20 backdrop-blur-sm text-white px-6 py-3 rounded-xl font-semibold hover:bg-white/30 transition-all border border-white/30">
               <Globe className="w-5 h-5" />
@@ -567,7 +651,7 @@ export default function HomePage() {
         <div className="px-6 pb-8">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 max-w-3xl mx-auto">
             {[
-              { icon: Shield, title: 'Secure Attendance', desc: 'Face recognition & GPS tracking for accurate check-ins' },
+              { icon: Shield, title: 'Anti-Spoof GPS', desc: 'Detects fake location apps & blocks punch-in with GPS spoofing detection' },
               { icon: Zap, title: 'Instant Pay Slips', desc: 'Generate and view salary slips with one click' },
               { icon: TrendingUp, title: 'Smart Analytics', desc: 'Real-time dashboard with attendance & payroll insights' },
             ].map((f, i) => (
@@ -651,15 +735,22 @@ export default function HomePage() {
         </div>
         <div className="bg-black/90 px-5 py-4 space-y-3 safe-area-bottom">
           {locationLoading && !currentLocation && <div className="flex items-center gap-2 text-blue-300 text-sm"><Loader2 className="w-4 h-4 animate-spin" /><span>Getting location...</span></div>}
-          {currentLocation && <div className="flex items-start gap-2 text-blue-300 text-xs"><MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" /><span className="line-clamp-2">{currentLocation.address}</span></div>}
+          {currentLocation && !locationSpoofed && <div className="flex items-start gap-2 text-blue-300 text-xs"><MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" /><span className="line-clamp-2">{currentLocation.address}</span></div>}
+          {locationSpoofed && (
+            <div className="p-3 bg-red-900/80 border border-red-500 rounded-xl">
+              <div className="flex items-center gap-2 text-red-300 text-sm font-bold"><ShieldCheck className="w-5 h-5" /> GPS Spoofing Detected!</div>
+              <p className="text-red-400 text-xs mt-1">{spoofReason}</p>
+              <p className="text-red-300 text-xs mt-1 font-semibold">Turn off your fake location app to punch in.</p>
+            </div>
+          )}
           <div className="flex gap-3">
             {cameraActive && !capturedPhoto && <Button onClick={capturePhoto} className="flex-1 h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-lg font-bold shadow-xl"><Camera className="w-6 h-6 mr-2" /> Capture</Button>}
             {capturedPhoto && (
               <>
                 <Button variant="outline" onClick={retakePhoto} className="flex-1 h-14 rounded-2xl text-base font-semibold border-white/30 text-white hover:bg-white/10">Retake</Button>
-                <Button onClick={checkInFlow ? handleCheckIn : handleCheckOut} disabled={isLoading} className={`flex-1 h-14 rounded-2xl text-lg font-bold shadow-xl text-white ${checkInFlow ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-500 hover:bg-red-600'}`}>
-                  {isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : checkInFlow ? <UserCheck className="w-6 h-6 mr-2" /> : <UserX className="w-6 h-6 mr-2" />}
-                  Submit
+                <Button onClick={checkInFlow ? handleCheckIn : handleCheckOut} disabled={isLoading || locationSpoofed} className={`flex-1 h-14 rounded-2xl text-lg font-bold shadow-xl text-white ${locationSpoofed ? 'bg-gray-600 cursor-not-allowed opacity-50' : checkInFlow ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-500 hover:bg-red-600'}`}>
+                  {locationSpoofed ? <ShieldCheck className="w-6 h-6 mr-2" /> : isLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : checkInFlow ? <UserCheck className="w-6 h-6 mr-2" /> : <UserX className="w-6 h-6 mr-2" />}
+                  {locationSpoofed ? 'Blocked' : 'Submit'}
                 </Button>
               </>
             )}
