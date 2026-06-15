@@ -585,7 +585,7 @@ export default function HomePage() {
   // ========== HOME SCREEN (not logged in) ==========
   if (!user) {
     return (
-      <div className={`min-h-screen overflow-y-auto ${darkMode ? 'bg-gray-950' : 'bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800'}`}>
+      <div className={`${darkMode ? 'bg-gray-950' : 'bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800'}`}>
         <video ref={videoRef} autoPlay playsInline muted className="hidden" />
         <canvas ref={canvasRef} className="hidden" />
 
@@ -1548,7 +1548,7 @@ export default function HomePage() {
   );
 
   return (
-    <div className={`min-h-screen flex flex-col lg:flex-row ${dm ? 'bg-gray-950' : 'bg-gray-50'}`}>
+    <div className={`flex flex-col lg:flex-row min-h-dvh ${dm ? 'bg-gray-950' : 'bg-gray-50'}`}>
       <video ref={videoRef} autoPlay playsInline muted className="hidden" />
       <canvas ref={canvasRef} className="hidden" />
 

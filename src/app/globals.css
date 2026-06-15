@@ -120,7 +120,6 @@
     @apply bg-background text-foreground;
     -webkit-tap-highlight-color: transparent;
     -webkit-touch-callout: none;
-    overscroll-behavior: none;
   }
 }
 
@@ -160,9 +159,14 @@ button:active:not(:disabled) {
   scrollbar-width: none;
 }
 
-/* Allow scrolling on all devices */
-html, body {
-  overflow: auto;
-  height: auto;
+/* Ensure scroll works on all devices - especially mobile */
+html {
+  overflow-y: scroll;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+body {
+  overflow-x: hidden;
+  min-height: 100dvh;
   -webkit-overflow-scrolling: touch;
 }
