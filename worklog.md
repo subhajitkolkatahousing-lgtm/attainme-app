@@ -1,62 +1,29 @@
-# Worklog
-
 ---
 Task ID: 1
 Agent: Main Agent
-Task: Build Face Attendance with Live Location & Payroll App
+Task: Complete UI overhaul and feature additions for Attendance Khata app
 
 Work Log:
-- Initialized fullstack Next.js 16 project with TypeScript, Tailwind CSS, shadcn/ui
-- Created Prisma schema with Employee, Attendance, Payroll models
-- Pushed database schema and generated Prisma client
-- Built 10 API routes: auth/login, auth/seed, employees, attendance/check-in, attendance/check-out, attendance/today, attendance/history, payroll, payroll/generate, payroll/mark-paid, dashboard
-- Created complete single-page application with login, admin panel, and employee portal
-- Implemented face capture via camera API with photo storage
-- Implemented live location capture via Geolocation API with address reverse-geocoding
-- Built admin dashboard with stats cards, pie chart, bar chart, recent attendance table
-- Built employee management with add employee dialog
-- Built attendance records view with location and work hours
-- Built payroll management with generate, mark-paid functionality
-- Built employee check-in/out with camera + location verification
-- Built employee attendance history and payroll views
-- Verified all functionality with Agent Browser testing
-- Fixed lint issues (useCallback restructuring, setState in effect)
-- Fixed employee default view to land on Check In/Out instead of empty Dashboard
+- Updated Prisma schema with new Reimbursement model (travel_allowance, mobile_recharge)
+- Created API routes for reimbursements: /api/reimbursements (GET+POST) and /api/reimbursements/approve (POST)
+- Rewrote entire page.tsx (~1400 lines) with all 7 requirements:
+  1. Mobile + Desktop responsive (sidebar on desktop, bottom nav on mobile)
+  2. Blue theme (changed from emerald/green to blue/indigo)
+  3. Dark mode with persistence in both Admin and User panels
+  4. Pay Slip menu for both admin and employee views
+  5. Travel Allowance Bill & Mobile Recharge submission (user upload photo + amount → admin view/approve)
+  6. App Download button in header and body of home page
+  7. Professional home page with product features, hero section, CTA buttons
+- Updated globals.css with blue-themed CSS variables for light and dark mode
+- Updated layout.tsx themeColor from #059669 to #2563eb
+- Updated manifest.json theme colors from green to blue
+- Added desktop responsive media queries (body scroll on desktop, fixed viewport on mobile)
+- Ran Prisma migration for Reimbursement table
+- Successfully deployed to Vercel production
 
 Stage Summary:
-- Fully functional Face Attendance & Payroll web application
-- Demo data seeded automatically with 6 employees (1 admin + 5 employees)
-- Admin: ADMIN001 / admin123, Employee: EMP001 / emp123
-- All features working: login, dashboard, employee management, attendance with camera+location, payroll generation and management
----
-Task ID: 1
-Agent: Main Agent
-Task: Fix camera not opening properly + Convert to mobile app format (PWA)
-
-Work Log:
-- Identified root cause of camera bug: video element was conditionally rendered, so videoRef.current was null when startCamera() was called
-- Fixed camera: Always render <video> and <canvas> in DOM (hidden when not active), use onloadedmetadata + play() promise, store stream in ref
-- Completely rewrote page.tsx with mobile app format:
-  - Bottom tab navigation (like native apps) instead of sidebar
-  - Full-screen camera overlay for check-in/out
-  - Rounded card-based UI with app-like feel
-  - Gradient header bar
-  - Touch-friendly large buttons with press effects
-  - Profile tab for employee
-  - Mobile-first responsive design
-- Added PWA support:
-  - manifest.json with app icons
-  - Service worker (sw.js) with caching strategy
-  - Apple web app meta tags
-  - Standalone display mode
-  - Generated app icon (1024x1024 and 192x192)
-- Updated layout.tsx with PWA meta tags and service worker registration
-- Updated globals.css with safe-area insets, touch optimizations, scroll behavior
-- Removed sidebar from app store (no longer needed)
-- Build successful, all APIs working
-
-Stage Summary:
-- Camera fix: Always render video/canvas refs, use streamRef, proper onloadedmetadata handling
-- App format: Bottom tab navigation, full-screen camera, mobile-first UI
-- PWA: manifest.json, sw.js, app icons, standalone mode
-- Files changed: page.tsx, layout.tsx, globals.css, app-store.ts, new manifest.json, new sw.js
+- Production URL: https://my-project-alpha-bice.vercel.app
+- All APIs verified working (login, dashboard, reimbursements)
+- New features: Pay Slip, Travel Allowance, Mobile Recharge claims
+- Blue theme with dark mode persistence
+- Responsive layout (desktop sidebar + mobile bottom nav)
