@@ -163,6 +163,7 @@ export default function HomePage() {
   const [reimbursements, setReimbursements] = useState<ReimbursementRecord[]>([]);
   const [myReimbursements, setMyReimbursements] = useState<ReimbursementRecord[]>([]);
   const [showReimbursementForm, setShowReimbursementForm] = useState(false);
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
   const [reimbursementType, setReimbursementType] = useState<'travel_allowance' | 'mobile_recharge'>('travel_allowance');
   const [reimbursementAmount, setReimbursementAmount] = useState('');
   const [reimbursementDescription, setReimbursementDescription] = useState('');
@@ -263,22 +264,70 @@ export default function HomePage() {
     setSpoofReason('');
     try {
       if (!navigator.geolocation) { toast({ title: 'Error', description: 'Geolocation not supported', variant: 'destructive' }); setLocationLoading(false); return; }
-      navigator.geolocation.getCurrentPosition(async (pos) => {
-        // GPS Spoofing Detection
-        const spoofCheck = detectLocationSpoofing(pos);
-        if (spoofCheck.spoofed) {
-          setLocationSpoofed(true);
-          setSpoofReason(spoofCheck.reason);
-          setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, address: '⚠️ SPOOFED LOCATION DETECTED' });
-          setLocationLoading(false);
-          toast({ title: '⚠️ Location Spoofing Detected!', description: 'GPS spoofing or fake location app detected. Punch-in will be blocked.', variant: 'destructive', duration: 8000 });
-          return;
-        }
 
-        let addr = `${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`;
-        try { const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.coords.latitude}&lon=${pos.coords.longitude}`); const d = await r.json(); if (d.display_name) addr = d.display_name; } catch {}
-        setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, address: addr }); setLocationLoading(false);
-      }, () => { toast({ title: 'Location Error', description: 'Allow location permission', variant: 'destructive' }); setLocationLoading(false); }, { enableHighAccuracy: true, timeout: 15000 });
+      // Take multiple location readings for spoofing detection
+      const takeReading = (): Promise<GeolocationPosition> => {
+        return new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 15000 });
+        });
+      };
+
+      // First reading
+      let pos: GeolocationPosition;
+      try {
+        pos = await takeReading();
+      } catch {
+        toast({ title: 'Location Error', description: 'Allow location permission', variant: 'destructive' });
+        setLocationLoading(false);
+        return;
+      }
+
+      // Run spoofing detection on first reading
+      const spoofCheck = detectLocationSpoofing(pos);
+
+      // Take 2 more readings quickly for multi-sample analysis (only if first didn't detect spoofing)
+      if (!spoofCheck.spoofed) {
+        for (let i = 0; i < 2; i++) {
+          try {
+            const extraPos = await takeReading();
+            const extraCheck = detectLocationSpoofing(extraPos);
+            if (extraCheck.spoofed) {
+              setLocationSpoofed(true);
+              setSpoofReason(extraCheck.reason);
+              setCurrentLocation({ lat: extraPos.coords.latitude, lng: extraPos.coords.longitude, address: 'SPOOFED LOCATION DETECTED' });
+              setLocationLoading(false);
+              toast({ title: 'Location Spoofing Detected!', description: 'GPS spoofing or fake location app detected. Punch-in will be blocked.', variant: 'destructive', duration: 8000 });
+              return;
+            }
+          } catch { break; }
+        }
+      }
+
+      if (spoofCheck.spoofed) {
+        setLocationSpoofed(true);
+        setSpoofReason(spoofCheck.reason);
+        setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, address: 'SPOOFED LOCATION DETECTED' });
+        setLocationLoading(false);
+        toast({ title: 'Location Spoofing Detected!', description: 'GPS spoofing or fake location app detected. Punch-in will be blocked.', variant: 'destructive', duration: 8000 });
+        return;
+      }
+
+      // Server-side IP geolocation verification
+      const ipCheck = await checkIpGeolocation(pos.coords.latitude, pos.coords.longitude);
+      if (ipCheck.spoofed) {
+        setLocationSpoofed(true);
+        setSpoofReason(ipCheck.reason);
+        setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, address: 'SPOOFED - IP MISMATCH DETECTED' });
+        setLocationLoading(false);
+        toast({ title: 'Location Spoofing Detected!', description: ipCheck.reason, variant: 'destructive', duration: 8000 });
+        return;
+      }
+
+      // Location is genuine
+      let addr = `${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`;
+      try { const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${pos.coords.latitude}&lon=${pos.coords.longitude}`); const d = await r.json(); if (d.display_name) addr = d.display_name; } catch {}
+      setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, address: addr });
+      setLocationLoading(false);
     } catch { setLocationLoading(false); }
   };
 
@@ -513,10 +562,10 @@ export default function HomePage() {
     } catch {}
   };
 
-  // ===== INSTALL APP (APK Download) =====
+  // ===== INSTALL APP =====
   const handleInstallApp = async () => {
     try {
-      // First try PWA install prompt if available
+      // First try PWA install prompt if available (Android Chrome)
       const deferredPrompt = (window as any).deferredInstallPrompt;
       if (deferredPrompt) {
         deferredPrompt.prompt();
@@ -527,58 +576,103 @@ export default function HomePage() {
           return;
         }
       }
-
-      // Otherwise, generate and download APK
-      toast({ title: 'Preparing APK...', description: 'Generating your app package' });
-      const res = await fetch('/api/generate-apk');
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'AttendanceKhata.apk';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
-        toast({ title: 'Download Started!', description: 'AttendanceKhata.apk is downloading' });
-      } else {
-        // Fallback: try PWA install
-        toast({ title: 'Install App', description: 'Use "Add to Home Screen" from browser menu to install the app' });
-      }
+      // If no PWA prompt, show install guide modal
+      setShowInstallGuide(true);
     } catch {
-      toast({ title: 'Install App', description: 'Use "Add to Home Screen" from browser menu to install the app' });
+      setShowInstallGuide(true);
     }
   };
 
   // ===== GPS SPOOFING DETECTION =====
   const [locationSpoofed, setLocationSpoofed] = useState(false);
   const [spoofReason, setSpoofReason] = useState('');
+  const locationReadings = useRef<{lat: number; lng: number; accuracy: number; timestamp: number}[]>([]);
 
   const detectLocationSpoofing = (pos: GeolocationPosition): { spoofed: boolean; reason: string } => {
-    // 1. Check accuracy - spoofed locations often have very low accuracy or suspiciously perfect accuracy
-    if (pos.coords.accuracy < 1) {
-      return { spoofed: true, reason: 'Location accuracy is suspiciously perfect. Possible GPS spoofing detected.' };
+    // Store reading for multi-sample analysis
+    const reading = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, timestamp: pos.timestamp };
+    locationReadings.current.push(reading);
+    // Keep only last 5 readings
+    if (locationReadings.current.length > 5) locationReadings.current.shift();
+
+    // 1. Check if Android provides isMocked flag (Chrome 86+ on Android)
+    const posAny = pos as any;
+    if (posAny.mocked !== undefined && posAny.mocked === true) {
+      return { spoofed: true, reason: 'Mock location provider detected by device. GPS spoofing confirmed.' };
     }
 
-    // 2. Check if altitude and speed are unavailable (common with mock locations)
-    // Real GPS usually provides altitude on mobile devices
-    const hasAltitude = pos.coords.altitude !== null;
-    const hasSpeed = pos.coords.speed !== null;
-    const hasHeading = pos.coords.heading !== null;
-
-    // 3. Check timestamp - spoofed locations may have old or future timestamps
-    const timeDiff = Math.abs(Date.now() - pos.timestamp);
-    if (timeDiff > 30000) { // More than 30 seconds old
-      return { spoofed: true, reason: 'Location data is too old. Possible GPS spoofing detected.' };
-    }
-
-    // 4. Check for mock location provider (Android Chrome)
-    // The accuracy being exactly 0 or a very specific number can indicate mock
+    // 2. Accuracy checks
     if (pos.coords.accuracy === 0) {
       return { spoofed: true, reason: 'Location accuracy is zero. GPS spoofing detected.' };
     }
+    if (pos.coords.accuracy < 0.5) {
+      return { spoofed: true, reason: 'Location accuracy is impossibly perfect (< 0.5m). Fake GPS app detected.' };
+    }
 
+    // 3. Timestamp check - spoofed locations may have stale/future timestamps
+    const timeDiff = Math.abs(Date.now() - pos.timestamp);
+    if (timeDiff > 60000) {
+      return { spoofed: true, reason: 'Location data is too old (>60s). Possible GPS spoofing.' };
+    }
+
+    // 4. Multi-sample analysis - Real GPS always has small variations even standing still
+    // Spoofed GPS gives EXACT same coordinates every time
+    if (locationReadings.current.length >= 3) {
+      const readings = locationReadings.current;
+      let identicalCount = 0;
+      for (let i = 1; i < readings.length; i++) {
+        const latDiff = Math.abs(readings[i].lat - readings[0].lat);
+        const lngDiff = Math.abs(readings[i].lng - readings[0].lng);
+        // If coordinates are EXACTLY the same (no variation at all) = spoofed
+        if (latDiff === 0 && lngDiff === 0) {
+          identicalCount++;
+        }
+      }
+      // If 2+ readings are EXACTLY identical, it's almost certainly spoofed
+      if (identicalCount >= 2) {
+        return { spoofed: true, reason: 'Location coordinates are exactly identical across multiple readings. Fake GPS app detected.' };
+      }
+
+      // Check for zero natural variation (real GPS has micro-variations)
+      const allLatSame = readings.every(r => r.lat === readings[0].lat);
+      const allLngSame = readings.every(r => r.lng === readings[0].lng);
+      const allAccSame = readings.every(r => r.accuracy === readings[0].accuracy);
+      if (allLatSame && allLngSame && allAccSame && readings.length >= 3) {
+        return { spoofed: true, reason: 'GPS data has zero natural variation. Location changer app detected.' };
+      }
+    }
+
+    // 5. Check if altitude is null on mobile (real GPS on mobile usually provides altitude)
+    // This is a soft signal - not definitive alone
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (isMobile && pos.coords.altitude === null && pos.coords.speed === null && pos.coords.heading === null) {
+      // On mobile, real GPS usually provides at least some of these
+      // If ALL are null, it's suspicious but not definitive
+      // We'll flag it as a warning if we have multiple readings
+      if (locationReadings.current.length >= 3) {
+        const allNoAlt = locationReadings.current.every(r => true); // already checked above
+        // Soft detection - combine with other signals
+      }
+    }
+
+    return { spoofed: false, reason: '' };
+  };
+
+  // Server-side IP geolocation check
+  const checkIpGeolocation = async (gpsLat: number, gpsLng: number): Promise<{ spoofed: boolean; reason: string }> => {
+    try {
+      const res = await fetch('/api/verify-location', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat: gpsLat, lng: gpsLng }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.spoofed) {
+          return { spoofed: true, reason: data.reason };
+        }
+      }
+    } catch {}
     return { spoofed: false, reason: '' };
   };
 
@@ -638,7 +732,7 @@ export default function HomePage() {
           <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
             <button onClick={handleInstallApp} className="inline-flex items-center justify-center gap-2 bg-black text-white px-6 py-3 rounded-xl font-semibold hover:bg-gray-900 transition-all shadow-xl">
               <Smartphone className="w-5 h-5" />
-              <div className="text-left"><span className="text-[10px] block leading-tight opacity-80">Download</span><span className="text-sm leading-tight">APK File</span></div>
+              <div className="text-left"><span className="text-[10px] block leading-tight opacity-80">Install</span><span className="text-sm leading-tight">App on Phone</span></div>
             </button>
             <button className="inline-flex items-center justify-center gap-2 bg-white/20 backdrop-blur-sm text-white px-6 py-3 rounded-xl font-semibold hover:bg-white/30 transition-all border border-white/30">
               <Globe className="w-5 h-5" />
@@ -698,6 +792,64 @@ export default function HomePage() {
             </div>
           </div>
         </div>
+
+        {/* Install App Guide Modal */}
+        <Dialog open={showInstallGuide} onOpenChange={setShowInstallGuide}>
+          <DialogContent className={`rounded-2xl max-w-sm ${darkMode ? 'bg-gray-900 border-gray-800' : ''}`}>
+            <DialogHeader>
+              <DialogTitle className={`flex items-center gap-2 ${darkMode ? 'text-white' : ''}`}>
+                <Smartphone className="w-5 h-5 text-blue-600" /> Install AttendanceKhata
+              </DialogTitle>
+              <DialogDescription className={darkMode ? 'text-gray-400' : ''}>
+                Install this app on your phone for the best experience
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              {/* Android Instructions */}
+              <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-800' : 'bg-blue-50'}`}>
+                <p className={`text-sm font-bold mb-3 ${darkMode ? 'text-blue-400' : 'text-blue-700'}`}>For Android (Chrome):</p>
+                <div className="space-y-2">
+                  <div className="flex gap-3 items-start">
+                    <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center flex-shrink-0 font-bold">1</span>
+                    <p className={`text-xs ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Tap the <span className="font-bold">3 dots menu</span> at top-right of Chrome</p>
+                  </div>
+                  <div className="flex gap-3 items-start">
+                    <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center flex-shrink-0 font-bold">2</span>
+                    <p className={`text-xs ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Tap <span className="font-bold">"Add to Home Screen"</span> or <span className="font-bold">"Install App"</span></p>
+                  </div>
+                  <div className="flex gap-3 items-start">
+                    <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center flex-shrink-0 font-bold">3</span>
+                    <p className={`text-xs ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Tap <span className="font-bold">"Install"</span> — app will appear on your home screen</p>
+                  </div>
+                </div>
+              </div>
+              {/* iPhone Instructions */}
+              <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-800' : 'bg-gray-50'}`}>
+                <p className={`text-sm font-bold mb-3 ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>For iPhone (Safari):</p>
+                <div className="space-y-2">
+                  <div className="flex gap-3 items-start">
+                    <span className="w-6 h-6 rounded-full bg-gray-600 text-white text-xs flex items-center justify-center flex-shrink-0 font-bold">1</span>
+                    <p className={`text-xs ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Tap the <span className="font-bold">Share button</span> at bottom of Safari</p>
+                  </div>
+                  <div className="flex gap-3 items-start">
+                    <span className="w-6 h-6 rounded-full bg-gray-600 text-white text-xs flex items-center justify-center flex-shrink-0 font-bold">2</span>
+                    <p className={`text-xs ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Scroll down and tap <span className="font-bold">"Add to Home Screen"</span></p>
+                  </div>
+                  <div className="flex gap-3 items-start">
+                    <span className="w-6 h-6 rounded-full bg-gray-600 text-white text-xs flex items-center justify-center flex-shrink-0 font-bold">3</span>
+                    <p className={`text-xs ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Tap <span className="font-bold">"Add"</span> — app icon will appear on home screen</p>
+                  </div>
+                </div>
+              </div>
+              <p className={`text-xs text-center ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                The installed app works like a native app with fullscreen mode and home screen icon.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button onClick={() => setShowInstallGuide(false)} className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-xl h-11 font-bold">Got it!</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }

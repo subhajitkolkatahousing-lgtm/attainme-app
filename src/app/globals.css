@@ -119,7 +119,6 @@
   body {
     @apply bg-background text-foreground;
     -webkit-tap-highlight-color: transparent;
-    -webkit-touch-callout: none;
   }
 }
 
@@ -159,14 +158,18 @@ button:active:not(:disabled) {
   scrollbar-width: none;
 }
 
-/* Ensure scroll works on all devices - especially mobile */
+/* Mobile smooth scroll fix */
 html {
-  overflow-y: scroll;
+  height: 100%;
+  overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   scroll-behavior: smooth;
+  touch-action: pan-y;
 }
 body {
+  min-height: 100%;
   overflow-x: hidden;
-  min-height: 100dvh;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  overscroll-behavior-y: auto;
 }
