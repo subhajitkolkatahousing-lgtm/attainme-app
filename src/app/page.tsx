@@ -139,7 +139,7 @@ export default function HomePage() {
   // Employees
   const [employees, setEmployees] = useState<any[]>([]);
   const [showAddEmployee, setShowAddEmployee] = useState(false);
-  const [newEmployee, setNewEmployee] = useState({ empId: '', name: '', email: '', phone: '', department: '', position: '', salary: '', role: 'employee', password: '' });
+  const [newEmployee, setNewEmployee] = useState({ empId: '', name: '', email: '', phone: '', department: '', position: '', salary: '', role: 'employee', subRole: 'sales', password: '' });
 
   // Payroll
   const [payrollRecords, setPayrollRecords] = useState<PayrollRecord[]>([]);
@@ -174,6 +174,12 @@ export default function HomePage() {
   const [reimbursementPhotoLoading, setReimbursementPhotoLoading] = useState(false);
   const reimburseFileRef = useRef<HTMLInputElement>(null);
 
+  // Manual Attendance
+  const [manualEmpId, setManualEmpId] = useState('');
+  const [manualDate, setManualDate] = useState(new Date().toISOString().split('T')[0]);
+  const [manualCheckIn, setManualCheckIn] = useState('09:00');
+  const [manualCheckOut, setManualCheckOut] = useState('18:00');
+
   // Dark mode persist
   useEffect(() => {
     if (darkMode) { document.documentElement.classList.add('dark'); } else { document.documentElement.classList.remove('dark'); }
@@ -189,7 +195,7 @@ export default function HomePage() {
         if (parsed.user && !user) {
           queueMicrotask(() => {
             setUser(parsed.user);
-            setCurrentView(parsed.currentView || (parsed.user.role === 'admin' ? 'dashboard' : 'check-in-out'));
+            setCurrentView(parsed.currentView || (['super_admin','admin','manager'].includes(parsed.user.role) ? 'dashboard' : 'check-in-out'));
           });
         }
       } catch {}
@@ -207,8 +213,11 @@ export default function HomePage() {
   useEffect(() => {
     if (!user) return;
     const load = async () => {
-      try { const res = await fetch(`/api/attendance/today?employeeId=${user.id}`); const d = await res.json(); if (res.ok) setTodayStatus(d); } catch {}
-      if (user.role === 'admin') {
+      const isPower = ['super_admin', 'admin', 'manager'].includes(user.role);
+      if (user.role === 'employee') {
+        try { const res = await fetch(`/api/attendance/today?employeeId=${user.id}`); const d = await res.json(); if (res.ok) setTodayStatus(d); } catch {}
+      }
+      if (isPower) {
         try { const res = await fetch('/api/dashboard'); const d = await res.json(); if (res.ok) setDashboardStats(d); } catch {}
         try { const res = await fetch('/api/employees'); const d = await res.json(); if (res.ok) setEmployees(d); } catch {}
         try { const res = await fetch('/api/attendance/approve?status=pending'); const d = await res.json(); if (res.ok) setPendingAttendance(d); } catch {}
@@ -218,7 +227,8 @@ export default function HomePage() {
         try { const res = await fetch('/api/leave/apply?status=pending'); const d = await res.json(); if (res.ok) setLeaveApplications(d); } catch {}
         try { const res = await fetch('/api/leave/balance?employeeId=all'); const d = await res.json(); if (res.ok) setAllLeaveBalances(d); } catch {}
         try { const res = await fetch('/api/reimbursements'); const d = await res.json(); if (res.ok) setReimbursements(d); } catch {}
-      } else {
+      }
+      if (user.role === 'employee') {
         try { const res = await fetch(`/api/attendance/history?employeeId=${user.id}`); const d = await res.json(); if (res.ok) setAttendanceHistory(d); } catch {}
         try { const res = await fetch(`/api/payroll?employeeId=${user.id}`); const d = await res.json(); if (res.ok) setPayrollRecords(d); } catch {}
         try { const res = await fetch(`/api/leave/balance?employeeId=${user.id}`); const d = await res.json(); if (res.ok) setLeaveBalances(d); } catch {}
@@ -462,7 +472,7 @@ export default function HomePage() {
       const data = await res.json();
       if (res.ok) {
         toast({ title: 'Success', description: `${data.name} added` }); setShowAddEmployee(false);
-        setNewEmployee({ empId: '', name: '', email: '', phone: '', department: '', position: '', salary: '', role: 'employee', password: '' });
+        setNewEmployee({ empId: '', name: '', email: '', phone: '', department: '', position: '', salary: '', role: 'employee', subRole: 'sales', password: '' });
         const r2 = await fetch('/api/employees'); if (r2.ok) setEmployees(await r2.json());
       } else { toast({ title: 'Error', description: data.error, variant: 'destructive' }); }
     } catch {}
@@ -500,7 +510,7 @@ export default function HomePage() {
       const res = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ empId: loginEmpId, password: loginPassword }) });
       const data = await res.json();
       if (!res.ok) { toast({ title: 'Login Failed', description: data.error, variant: 'destructive' }); }
-      else { setUser(data); setCurrentView(data.role === 'admin' ? 'dashboard' : 'check-in-out'); toast({ title: 'Welcome!', description: `Hello, ${data.name}` }); }
+      else { setUser(data); setCurrentView(['super_admin','admin','manager'].includes(data.role) ? 'dashboard' : 'check-in-out'); toast({ title: 'Welcome!', description: `Hello, ${data.name}` }); }
     } catch { toast({ title: 'Error', variant: 'destructive' }); }
     setIsLoading(false);
   };
@@ -535,6 +545,64 @@ export default function HomePage() {
         setReimbursementPhotos([]);
         const r2 = await fetch(`/api/reimbursements?employeeId=${user.id}`); if (r2.ok) setMyReimbursements(await r2.json());
       } else { const d = await res.json(); toast({ title: 'Error', description: d.error, variant: 'destructive' }); }
+    } catch { toast({ title: 'Error', variant: 'destructive' }); }
+    setIsLoading(false);
+  };
+
+  // ===== MANUAL ATTENDANCE (for Presales employees) =====
+  const handleManualAttendance = async () => {
+    if (!user || !manualEmpId || !manualDate || !manualCheckIn) {
+      toast({ title: 'Missing Fields', description: 'Select employee, date and check-in time', variant: 'destructive' });
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const checkInTime = new Date(`${manualDate}T${manualCheckIn}:00`);
+      const checkOutTime = manualCheckOut ? new Date(`${manualDate}T${manualCheckOut}:00`) : null;
+      const workHours = checkOutTime ? Math.round(((checkOutTime.getTime() - checkInTime.getTime()) / (1000 * 60 * 60)) * 100) / 100 : null;
+
+      const res = await fetch('/api/attendance/check-in', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employeeId: manualEmpId,
+          photo: null,
+          latitude: null,
+          longitude: null,
+          address: 'Manual Entry',
+          manualCheckIn: checkInTime.toISOString(),
+          isManual: true,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        // If check-out time provided, check out too
+        if (checkOutTime && data.id) {
+          await fetch('/api/attendance/check-out', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              employeeId: manualEmpId,
+              photo: null,
+              latitude: null,
+              longitude: null,
+              address: 'Manual Entry',
+              manualCheckOut: checkOutTime.toISOString(),
+              isManual: true,
+              attendanceId: data.id,
+            }),
+          });
+        }
+        // Auto-approve manual attendance
+        await fetch('/api/attendance/approve', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ attendanceId: data.id, action: 'approve', adminId: user.id }),
+        });
+
+        toast({ title: 'Attendance Added!', description: `Manual attendance for ${manualDate}` });
+        setManualEmpId(''); setManualDate(new Date().toISOString().split('T')[0]); setManualCheckIn('09:00'); setManualCheckOut('18:00');
+        // Refresh data
+        const r2 = await fetch('/api/attendance/approve?status=pending'); if (r2.ok) setPendingAttendance(await r2.json());
+        const r3 = await fetch('/api/dashboard'); if (r3.ok) setDashboardStats(await r3.json());
+      } else { toast({ title: 'Error', description: data.error, variant: 'destructive' }); }
     } catch { toast({ title: 'Error', variant: 'destructive' }); }
     setIsLoading(false);
   };
@@ -819,24 +887,69 @@ export default function HomePage() {
   }
 
   // ========== MAIN APP ==========
-  const isAdmin = user.role === 'admin';
+  const role = user.role;
+  const subRole = user.subRole;
+  const isSuperAdmin = role === 'super_admin';
+  const isAdmin = role === 'admin' || role === 'super_admin';
+  const isManager = role === 'manager';
+  const isPowerUser = isSuperAdmin || isAdmin || isManager; // anyone with admin-like access
+  const isPresales = role === 'employee' && subRole === 'presales';
+  const isSales = role === 'employee' && subRole === 'sales';
+  const isEmployee = role === 'employee';
   const dm = darkMode;
 
-  const adminTabs = [
+  // Role label for display
+  const roleLabel = isSuperAdmin ? 'Super Admin' : isAdmin ? 'Admin' : isManager ? 'Manager' : isPresales ? 'Pre-Sales' : isSales ? 'Sales' : 'Employee';
+  const panelLabel = isSuperAdmin ? 'Super Admin Panel' : isAdmin ? 'Admin Panel' : isManager ? 'Manager Panel' : 'Employee Panel';
+
+  // Super Admin + Admin: full access
+  const superAdminSidebarItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: Home },
+    { id: 'pending-approval', label: 'Approve Attendance', icon: CheckCircle2 },
+    { id: 'employees', label: 'Staff Management', icon: Users },
+    { id: 'manual-attendance', label: 'Manual Attendance', icon: FileText },
+    { id: 'payroll-admin', label: 'Payroll', icon: Wallet },
+    { id: 'pay-slip-admin', label: 'Pay Slips', icon: Receipt },
+    { id: 'leave-mgmt', label: 'Leave Management', icon: CalendarDays },
+    { id: 'reimbursements-admin', label: 'Expense Claims', icon: IndianRupee },
+  ];
+
+  const adminSidebarItems = superAdminSidebarItems; // same access
+
+  // Manager: restricted access
+  const managerSidebarItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: Home },
+    { id: 'pending-approval', label: 'Approve Attendance', icon: CheckCircle2 },
+    { id: 'manual-attendance', label: 'Manual Attendance', icon: FileText },
+    { id: 'leave-mgmt', label: 'Leave Management', icon: CalendarDays },
+    { id: 'reimbursements-admin', label: 'Expense Claims', icon: IndianRupee },
+  ];
+
+  // Employee sidebar
+  const empSidebarItems = [
+    { id: 'check-in-out', label: 'Check In/Out', icon: Fingerprint },
+    { id: 'my-attendance', label: 'Attendance Records', icon: Clock },
+    { id: 'my-leave', label: 'Leave Management', icon: CalendarDays },
+    { id: 'pay-slip', label: 'Pay Slips', icon: Receipt },
+    { id: 'reimbursements', label: 'Expense Claims', icon: IndianRupee },
+    { id: 'profile', label: 'My Profile', icon: Users },
+  ];
+
+  // Bottom tabs (mobile)
+  const superAdminTabs = [
     { id: 'dashboard', label: 'Home', icon: Home },
     { id: 'pending-approval', label: 'Approve', icon: CheckCircle2 },
     { id: 'employees', label: 'Staff', icon: Users },
     { id: 'leave-mgmt', label: 'Leave', icon: CalendarDays },
   ];
 
-  const adminSidebarItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: Home },
-    { id: 'pending-approval', label: 'Approve Attendance', icon: CheckCircle2 },
-    { id: 'employees', label: 'Staff Management', icon: Users },
-    { id: 'payroll-admin', label: 'Payroll', icon: Wallet },
-    { id: 'pay-slip-admin', label: 'Pay Slips', icon: Receipt },
-    { id: 'leave-mgmt', label: 'Leave Management', icon: CalendarDays },
-    { id: 'reimbursements-admin', label: 'Expense Claims', icon: IndianRupee },
+  const adminTabs = superAdminTabs;
+
+  const managerTabs = [
+    { id: 'dashboard', label: 'Home', icon: Home },
+    { id: 'pending-approval', label: 'Approve', icon: CheckCircle2 },
+    { id: 'leave-mgmt', label: 'Leave', icon: CalendarDays },
+    { id: 'reimbursements-admin', label: 'Expenses', icon: IndianRupee },
   ];
 
   const empTabs = [
@@ -848,17 +961,12 @@ export default function HomePage() {
     { id: 'profile', label: 'Profile', icon: Users },
   ];
 
-  const empSidebarItems = [
-    { id: 'check-in-out', label: 'Check In/Out', icon: Fingerprint },
-    { id: 'my-attendance', label: 'Attendance Records', icon: Clock },
-    { id: 'my-leave', label: 'Leave Management', icon: CalendarDays },
-    { id: 'pay-slip', label: 'Pay Slips', icon: Receipt },
-    { id: 'reimbursements', label: 'Expense Claims', icon: IndianRupee },
-    { id: 'profile', label: 'My Profile', icon: Users },
-  ];
-
-  const sidebarItems = isAdmin ? adminSidebarItems : empSidebarItems;
-  const tabs = isAdmin ? adminTabs : empTabs;
+  // Select sidebar and tabs based on role
+  let sidebarItems, tabs;
+  if (isSuperAdmin) { sidebarItems = superAdminSidebarItems; tabs = superAdminTabs; }
+  else if (isAdmin) { sidebarItems = adminSidebarItems; tabs = adminTabs; }
+  else if (isManager) { sidebarItems = managerSidebarItems; tabs = managerTabs; }
+  else { sidebarItems = empSidebarItems; tabs = empTabs; }
 
   const renderSidebar = () => (
     <aside className={`hidden lg:flex flex-col w-64 min-h-screen border-r ${dm ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
@@ -868,7 +976,7 @@ export default function HomePage() {
         </div>
         <div>
           <h1 className="font-bold text-base leading-tight">AttendanceKhata</h1>
-          <p className={`text-[10px] uppercase tracking-wider ${dm ? 'text-gray-500' : 'text-gray-400'}`}>{isAdmin ? 'Admin Panel' : 'Employee Panel'}</p>
+          <p className={`text-[10px] uppercase tracking-wider ${dm ? 'text-gray-500' : 'text-gray-400'}`}>{panelLabel}</p>
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto p-3 space-y-1">
@@ -904,7 +1012,7 @@ export default function HomePage() {
           </Avatar>
           <div className="flex-1 min-w-0">
             <p className={`text-sm font-semibold truncate ${dm ? 'text-white' : ''}`}>{user.name}</p>
-            <p className={`text-[10px] ${dm ? 'text-gray-500' : 'text-gray-400'}`}>{user.empId}</p>
+            <p className={`text-[10px] ${dm ? 'text-gray-500' : 'text-gray-400'}`}>{user.empId} · {roleLabel}</p>
           </div>
           <button onClick={handleLogout} className={`w-8 h-8 flex items-center justify-center rounded-xl ${dm ? 'bg-gray-800 text-red-400 hover:bg-gray-700' : 'bg-red-50 text-red-500 hover:bg-red-100'} transition-all`}>
             <LogOut className="w-4 h-4" />
@@ -918,7 +1026,7 @@ export default function HomePage() {
     <div className="space-y-4">
 
       {/* ===== ADMIN: DASHBOARD ===== */}
-      {currentView === 'dashboard' && isAdmin && dashboardStats && (
+      {currentView === 'dashboard' && isPowerUser && dashboardStats && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
@@ -986,7 +1094,7 @@ export default function HomePage() {
       )}
 
       {/* ===== ADMIN: PENDING APPROVAL ===== */}
-      {currentView === 'pending-approval' && isAdmin && (
+      {currentView === 'pending-approval' && isPowerUser && (
         <div className="space-y-4">
           <h2 className={`text-xl font-bold ${dm ? 'text-white' : ''}`}>Approve Attendance</h2>
           {pendingAttendance.length === 0 ? (
@@ -1047,13 +1155,16 @@ export default function HomePage() {
                     <div><Label className="text-xs">Phone</Label><Input placeholder="+91-9876543216" value={newEmployee.phone} onChange={e => setNewEmployee({ ...newEmployee, phone: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <div><Label className="text-xs">Department *</Label><Select value={newEmployee.department} onValueChange={v => setNewEmployee({ ...newEmployee, department: v })}><SelectTrigger className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}><SelectValue placeholder="Select" /></SelectTrigger><SelectContent><SelectItem value="Engineering">Engineering</SelectItem><SelectItem value="Design">Design</SelectItem><SelectItem value="Marketing">Marketing</SelectItem><SelectItem value="Finance">Finance</SelectItem><SelectItem value="HR">HR</SelectItem><SelectItem value="Operations">Operations</SelectItem></SelectContent></Select></div>
+                    <div><Label className="text-xs">Department *</Label><Select value={newEmployee.department} onValueChange={v => setNewEmployee({ ...newEmployee, department: v })}><SelectTrigger className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}><SelectValue placeholder="Select" /></SelectTrigger><SelectContent><SelectItem value="Engineering">Engineering</SelectItem><SelectItem value="Design">Design</SelectItem><SelectItem value="Marketing">Marketing</SelectItem><SelectItem value="Finance">Finance</SelectItem><SelectItem value="HR">HR</SelectItem><SelectItem value="Operations">Operations</SelectItem><SelectItem value="Sales">Sales</SelectItem><SelectItem value="Pre-Sales">Pre-Sales</SelectItem></SelectContent></Select></div>
                     <div><Label className="text-xs">Position *</Label><Input placeholder="Developer" value={newEmployee.position} onChange={e => setNewEmployee({ ...newEmployee, position: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div><Label className="text-xs">Salary (₹) *</Label><Input type="number" placeholder="50000" value={newEmployee.salary} onChange={e => setNewEmployee({ ...newEmployee, salary: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-                    <div><Label className="text-xs">Role</Label><Select value={newEmployee.role} onValueChange={v => setNewEmployee({ ...newEmployee, role: v })}><SelectTrigger className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="employee">Employee</SelectItem><SelectItem value="admin">Admin</SelectItem></SelectContent></Select></div>
+                    <div><Label className="text-xs">Role *</Label><Select value={newEmployee.role} onValueChange={v => setNewEmployee({ ...newEmployee, role: v, subRole: v !== 'employee' ? '' : newEmployee.subRole || 'sales' })}><SelectTrigger className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="employee">Employee</SelectItem><SelectItem value="manager">Manager</SelectItem><SelectItem value="admin">Admin</SelectItem><SelectItem value="super_admin">Super Admin</SelectItem></SelectContent></Select></div>
                   </div>
+                  {newEmployee.role === 'employee' && (
+                    <div><Label className="text-xs">Employee Type *</Label><Select value={newEmployee.subRole || 'sales'} onValueChange={v => setNewEmployee({ ...newEmployee, subRole: v })}><SelectTrigger className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="sales">Sales (Photo Check-In)</SelectItem><SelectItem value="presales">Pre-Sales (Manual Attendance)</SelectItem></SelectContent></Select></div>
+                  )}
                   <div><Label className="text-xs">Password *</Label><Input type="password" placeholder="Min 6 chars" value={newEmployee.password} onChange={e => setNewEmployee({ ...newEmployee, password: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
                 </div>
                 <DialogFooter><Button variant="outline" onClick={() => setShowAddEmployee(false)} className="rounded-xl">Cancel</Button><Button onClick={handleAddEmployee} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl">Add</Button></DialogFooter>
@@ -1066,11 +1177,56 @@ export default function HomePage() {
                 <CardContent className="p-4"><div className="flex items-center gap-3">
                   <Avatar className="w-11 h-11"><AvatarFallback className="bg-blue-100 text-blue-700 font-bold text-sm">{emp.name.split(' ').map((n: string) => n[0]).join('')}</AvatarFallback></Avatar>
                   <div className="flex-1 min-w-0"><p className={`font-semibold text-sm ${dm ? 'text-white' : ''}`}>{emp.name}</p><p className={`text-xs ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{emp.empId} · {emp.department}</p></div>
-                  <div className="text-right"><p className={`text-sm font-bold ${dm ? 'text-white' : ''}`}>₹{emp.salary.toLocaleString('en-IN')}</p><Badge className={emp.role === 'admin' ? 'bg-purple-100 text-purple-700 text-[10px]' : 'bg-gray-100 text-gray-600 text-[10px]'}>{emp.role}</Badge></div>
+                  <div className="text-right"><p className={`text-sm font-bold ${dm ? 'text-white' : ''}`}>₹{emp.salary.toLocaleString('en-IN')}</p><Badge className={`${emp.role === 'super_admin' ? 'bg-red-100 text-red-700' : emp.role === 'admin' ? 'bg-purple-100 text-purple-700' : emp.role === 'manager' ? 'bg-blue-100 text-blue-700' : emp.subRole === 'presales' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'} text-[10px]`}>{emp.role === 'employee' ? (emp.subRole === 'presales' ? 'Pre-Sales' : 'Sales') : emp.role === 'super_admin' ? 'Super Admin' : emp.role === 'manager' ? 'Manager' : 'Admin'}</Badge></div>
                 </div></CardContent>
               </Card>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ===== MANUAL ATTENDANCE ===== */}
+      {currentView === 'manual-attendance' && isPowerUser && (
+        <div className="space-y-4">
+          <h2 className={`text-xl font-bold ${dm ? 'text-white' : ''}`}>Manual Attendance Entry</h2>
+          <p className={`text-sm ${dm ? 'text-gray-400' : 'text-gray-500'}`}>Add attendance for Pre-Sales employees (no photo required). Attendance will be auto-approved.</p>
+          <Card className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
+            <CardContent className="p-5 space-y-4">
+              <div>
+                <Label className={`text-xs ${dm ? 'text-gray-300' : ''}`}>Select Employee *</Label>
+                <Select value={manualEmpId} onValueChange={setManualEmpId}>
+                  <SelectTrigger className={`h-10 rounded-xl mt-1 ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}>
+                    <SelectValue placeholder="Choose employee..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {employees.filter(e => e.role === 'employee' && e.subRole === 'presales').map(e => (
+                      <SelectItem key={e.id} value={e.id}>{e.name} ({e.empId}) - Pre-Sales</SelectItem>
+                    ))}
+                    {employees.filter(e => e.role === 'employee' && e.subRole !== 'presales').map(e => (
+                      <SelectItem key={e.id} value={e.id}>{e.name} ({e.empId}) - {e.subRole === 'sales' ? 'Sales' : 'Employee'}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className={`text-xs ${dm ? 'text-gray-300' : ''}`}>Date *</Label>
+                <Input type="date" value={manualDate} onChange={e => setManualDate(e.target.value)} className={`h-10 rounded-xl mt-1 ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className={`text-xs ${dm ? 'text-gray-300' : ''}`}>Check In Time *</Label>
+                  <Input type="time" value={manualCheckIn} onChange={e => setManualCheckIn(e.target.value)} className={`h-10 rounded-xl mt-1 ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} />
+                </div>
+                <div>
+                  <Label className={`text-xs ${dm ? 'text-gray-300' : ''}`}>Check Out Time</Label>
+                  <Input type="time" value={manualCheckOut} onChange={e => setManualCheckOut(e.target.value)} className={`h-10 rounded-xl mt-1 ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} />
+                </div>
+              </div>
+              <Button onClick={handleManualAttendance} disabled={isLoading || !manualEmpId} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-base font-semibold">
+                {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <><CheckCircle2 className="w-5 h-5 mr-2" /> Submit Attendance</>}
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       )}
 
@@ -1151,7 +1307,7 @@ export default function HomePage() {
       )}
 
       {/* ===== ADMIN: LEAVE MANAGEMENT ===== */}
-      {currentView === 'leave-mgmt' && isAdmin && (
+      {currentView === 'leave-mgmt' && isPowerUser && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className={`text-xl font-bold ${dm ? 'text-white' : ''}`}>Leave Management</h2>
@@ -1231,7 +1387,7 @@ export default function HomePage() {
       )}
 
       {/* ===== ADMIN: REIMBURSEMENTS ===== */}
-      {currentView === 'reimbursements-admin' && isAdmin && (
+      {currentView === 'reimbursements-admin' && isPowerUser && (
         <div className="space-y-4">
           <h2 className={`text-xl font-bold ${dm ? 'text-white' : ''}`}>Expense Claims</h2>
           <div className="grid grid-cols-2 gap-3">
@@ -1320,38 +1476,56 @@ export default function HomePage() {
       )}
 
       {/* ===== EMPLOYEE: CHECK IN/OUT ===== */}
-      {currentView === 'check-in-out' && !isAdmin && (
+      {currentView === 'check-in-out' && isEmployee && (
         <div className="space-y-4">
-          <div className={`rounded-2xl p-5 ${todayStatus.checkedOut ? (dm ? 'bg-gray-800' : 'bg-gradient-to-r from-gray-100 to-gray-200') : todayStatus.checkedIn ? (dm ? 'bg-amber-900/30' : 'bg-gradient-to-r from-amber-50 to-amber-100') : (dm ? 'bg-blue-900/30' : 'bg-gradient-to-r from-blue-50 to-indigo-100')}`}>
-            <div className="flex items-center gap-4">
-              <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${todayStatus.checkedOut ? (dm ? 'bg-gray-700' : 'bg-gray-200') : todayStatus.checkedIn ? (dm ? 'bg-amber-800' : 'bg-amber-200') : (dm ? 'bg-blue-800' : 'bg-blue-200')}`}>
-                {todayStatus.checkedOut ? <CheckCircle2 className={`w-8 h-8 ${dm ? 'text-gray-400' : 'text-gray-600'}`} /> : todayStatus.checkedIn ? <Timer className="w-8 h-8 text-amber-600" /> : <Fingerprint className="w-8 h-8 text-blue-600" />}
+          {isPresales ? (
+            /* Pre-Sales: No photo check-in, attendance manually entered */
+            <div className={`rounded-2xl p-6 ${dm ? 'bg-gray-800' : 'bg-gradient-to-r from-indigo-50 to-purple-50'} text-center`}>
+              <div className={`w-20 h-20 rounded-full mx-auto mb-4 flex items-center justify-center ${dm ? 'bg-indigo-900' : 'bg-indigo-100'}`}>
+                <FileText className={`w-10 h-10 ${dm ? 'text-indigo-400' : 'text-indigo-600'}`} />
               </div>
-              <div>
-                <h3 className={`text-lg font-bold ${dm ? 'text-white' : ''}`}>
-                  {todayStatus.checkedOut ? 'Day Complete!' : todayStatus.checkedIn ? 'Pending Approval' : 'Ready to Check In'}
-                </h3>
-                <p className={`text-sm ${dm ? 'text-gray-400' : 'text-gray-600'}`}>
-                  {todayStatus.checkedOut ? 'Check out submitted' : todayStatus.checkedIn ? 'Waiting for admin approval' : 'Tap below to check in'}
-                </p>
-              </div>
+              <h3 className={`text-lg font-bold mb-2 ${dm ? 'text-white' : ''}`}>Pre-Sales Account</h3>
+              <p className={`text-sm ${dm ? 'text-gray-400' : 'text-gray-600'}`}>
+                Your attendance is managed by your manager or admin. No check-in/out required.
+              </p>
+              <p className={`text-xs mt-2 ${dm ? 'text-gray-500' : 'text-gray-400'}`}>
+                Contact your manager if you have any issues.
+              </p>
             </div>
-          </div>
+          ) : (
+            <>
+              <div className={`rounded-2xl p-5 ${todayStatus.checkedOut ? (dm ? 'bg-gray-800' : 'bg-gradient-to-r from-gray-100 to-gray-200') : todayStatus.checkedIn ? (dm ? 'bg-amber-900/30' : 'bg-gradient-to-r from-amber-50 to-amber-100') : (dm ? 'bg-blue-900/30' : 'bg-gradient-to-r from-blue-50 to-indigo-100')}`}>
+                <div className="flex items-center gap-4">
+                  <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${todayStatus.checkedOut ? (dm ? 'bg-gray-700' : 'bg-gray-200') : todayStatus.checkedIn ? (dm ? 'bg-amber-800' : 'bg-amber-200') : (dm ? 'bg-blue-800' : 'bg-blue-200')}`}>
+                    {todayStatus.checkedOut ? <CheckCircle2 className={`w-8 h-8 ${dm ? 'text-gray-400' : 'text-gray-600'}`} /> : todayStatus.checkedIn ? <Timer className="w-8 h-8 text-amber-600" /> : <Fingerprint className="w-8 h-8 text-blue-600" />}
+                  </div>
+                  <div>
+                    <h3 className={`text-lg font-bold ${dm ? 'text-white' : ''}`}>
+                      {todayStatus.checkedOut ? 'Day Complete!' : todayStatus.checkedIn ? 'Pending Approval' : 'Ready to Check In'}
+                    </h3>
+                    <p className={`text-sm ${dm ? 'text-gray-400' : 'text-gray-600'}`}>
+                      {todayStatus.checkedOut ? 'Check out submitted' : todayStatus.checkedIn ? 'Waiting for admin approval' : 'Tap below to check in'}
+                    </p>
+                  </div>
+                </div>
+              </div>
 
-          {!todayStatus.checkedOut && (
-            <div className="grid grid-cols-2 gap-3">
-              <button onClick={startCheckInFlow} disabled={isLoading || todayStatus.checkedIn} className="h-20 rounded-2xl bg-blue-600 hover:bg-blue-700 active:scale-95 transition-all text-white disabled:opacity-40 shadow-lg flex flex-col items-center justify-center gap-1">
-                {isLoading ? <Loader2 className="w-7 h-7 animate-spin" /> : <UserCheck className="w-7 h-7" />}
-                <span className="text-sm font-bold">Check In</span>
-              </button>
-              <button onClick={startCheckOutFlow} disabled={isLoading || !todayStatus.checkedIn || todayStatus.checkedOut} className="h-20 rounded-2xl bg-red-500 hover:bg-red-600 active:scale-95 transition-all text-white disabled:opacity-40 shadow-lg flex flex-col items-center justify-center gap-1">
-                {isLoading ? <Loader2 className="w-7 h-7 animate-spin" /> : <UserX className="w-7 h-7" />}
-                <span className="text-sm font-bold">Check Out</span>
-              </button>
-            </div>
+              {!todayStatus.checkedOut && (
+                <div className="grid grid-cols-2 gap-3">
+                  <button onClick={startCheckInFlow} disabled={isLoading || todayStatus.checkedIn} className="h-20 rounded-2xl bg-blue-600 hover:bg-blue-700 active:scale-95 transition-all text-white disabled:opacity-40 shadow-lg flex flex-col items-center justify-center gap-1">
+                    {isLoading ? <Loader2 className="w-7 h-7 animate-spin" /> : <UserCheck className="w-7 h-7" />}
+                    <span className="text-sm font-bold">Check In</span>
+                  </button>
+                  <button onClick={startCheckOutFlow} disabled={isLoading || !todayStatus.checkedIn || todayStatus.checkedOut} className="h-20 rounded-2xl bg-red-500 hover:bg-red-600 active:scale-95 transition-all text-white disabled:opacity-40 shadow-lg flex flex-col items-center justify-center gap-1">
+                    {isLoading ? <Loader2 className="w-7 h-7 animate-spin" /> : <UserX className="w-7 h-7" />}
+                    <span className="text-sm font-bold">Check Out</span>
+                  </button>
+                </div>
+              )}
+
+              {todayStatus.checkedOut && <div className="text-center py-4"><CheckCircle2 className="w-16 h-16 mx-auto text-blue-400 mb-2" /><p className={`text-sm ${dm ? 'text-gray-400' : 'text-gray-500'}`}>Awaiting admin approval</p></div>}
+            </>
           )}
-
-          {todayStatus.checkedOut && <div className="text-center py-4"><CheckCircle2 className="w-16 h-16 mx-auto text-blue-400 mb-2" /><p className={`text-sm ${dm ? 'text-gray-400' : 'text-gray-500'}`}>Awaiting admin approval</p></div>}
 
           {todayStatus.attendance && (
             <Card className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
@@ -1369,7 +1543,7 @@ export default function HomePage() {
       )}
 
       {/* ===== EMPLOYEE: MY ATTENDANCE ===== */}
-      {currentView === 'my-attendance' && !isAdmin && (
+      {currentView === 'my-attendance' && isEmployee && (
         <div className="space-y-4">
           <h2 className={`text-xl font-bold ${dm ? 'text-white' : ''}`}>My Attendance</h2>
           {attendanceHistory.length === 0 ? <Card className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}><CardContent className="py-12 text-center"><Clock className={`w-12 h-12 mx-auto mb-3 ${dm ? 'text-gray-600' : 'text-gray-300'}`} /><p className={dm ? 'text-gray-400' : 'text-gray-500'}>No records yet</p></CardContent></Card> :
@@ -1388,7 +1562,7 @@ export default function HomePage() {
       )}
 
       {/* ===== EMPLOYEE: MY LEAVE ===== */}
-      {currentView === 'my-leave' && !isAdmin && (
+      {currentView === 'my-leave' && isEmployee && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className={`text-xl font-bold ${dm ? 'text-white' : ''}`}>My Leave</h2>
@@ -1445,7 +1619,7 @@ export default function HomePage() {
       )}
 
       {/* ===== EMPLOYEE: PAY SLIPS ===== */}
-      {currentView === 'pay-slip' && !isAdmin && (
+      {currentView === 'pay-slip' && isEmployee && (
         <div className="space-y-4">
           <h2 className={`text-xl font-bold ${dm ? 'text-white' : ''}`}>My Pay Slips</h2>
           {payrollRecords.length === 0 ? (
@@ -1504,7 +1678,7 @@ export default function HomePage() {
       )}
 
       {/* ===== EMPLOYEE: EXPENSE CLAIMS ===== */}
-      {currentView === 'reimbursements' && !isAdmin && (
+      {currentView === 'reimbursements' && isEmployee && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className={`text-xl font-bold ${dm ? 'text-white' : ''}`}>My Expense Claims</h2>
@@ -1628,7 +1802,7 @@ export default function HomePage() {
       )}
 
       {/* ===== EMPLOYEE: PROFILE ===== */}
-      {currentView === 'profile' && !isAdmin && (
+      {currentView === 'profile' && isEmployee && (
         <div className="space-y-4">
           <Card className={`rounded-2xl border-0 shadow-sm overflow-hidden ${dm ? 'bg-gray-900' : ''}`}>
             <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 text-center">
@@ -1671,7 +1845,7 @@ export default function HomePage() {
             <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center"><BookOpen className="w-5 h-5 text-white" /></div>
             <div>
               <h1 className="font-bold text-lg leading-tight">AttendanceKhata</h1>
-              <p className={`text-[10px] uppercase tracking-wider ${dm ? 'text-gray-400' : 'text-blue-100'}`}>{isAdmin ? 'Admin' : 'Employee'}</p>
+              <p className={`text-[10px] uppercase tracking-wider ${dm ? 'text-gray-400' : 'text-blue-100'}`}>{roleLabel}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">

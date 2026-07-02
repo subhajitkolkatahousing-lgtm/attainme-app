@@ -6,8 +6,17 @@ export async function POST() {
     // Check if already seeded
     const existing = await db.employee.findFirst();
     if (existing) {
-      return NextResponse.json({ message: 'Database already seeded', admin: { empId: 'ADMIN001', name: 'Admin User' } });
+      return NextResponse.json({ message: 'Database already seeded', admin: { empId: 'SUADMIN01', name: 'Super Admin' } });
     }
+
+    // Create Super Admin
+    const superAdmin = await db.employee.create({
+      data: {
+        empId: 'SUADMIN01', name: 'Super Admin', email: 'superadmin@attendancekhata.com',
+        phone: '+91-9876543200', department: 'Administration', position: 'Super Administrator',
+        salary: 100000, role: 'super_admin', password: 'super123',
+      },
+    });
 
     // Create Admin
     const admin = await db.employee.create({
@@ -18,13 +27,22 @@ export async function POST() {
       },
     });
 
-    // Create Employees
+    // Create Manager
+    const manager = await db.employee.create({
+      data: {
+        empId: 'MGR001', name: 'Ravi Verma', email: 'ravi@company.com',
+        phone: '+91-9876543201', department: 'Operations', position: 'Operations Manager',
+        salary: 65000, role: 'manager', password: 'mgr123',
+      },
+    });
+
+    // Create Employees (Presales & Sales)
     const employees = await Promise.all([
-      db.employee.create({ data: { empId: 'EMP001', name: 'Rahul Sharma', email: 'rahul@company.com', phone: '+91-9876543211', department: 'Engineering', position: 'Software Developer', salary: 50000, role: 'employee', password: 'emp123' } }),
-      db.employee.create({ data: { empId: 'EMP002', name: 'Priya Patel', email: 'priya@company.com', phone: '+91-9876543212', department: 'Design', position: 'UI Designer', salary: 45000, role: 'employee', password: 'emp123' } }),
-      db.employee.create({ data: { empId: 'EMP003', name: 'Amit Kumar', email: 'amit@company.com', phone: '+91-9876543213', department: 'Marketing', position: 'Marketing Executive', salary: 40000, role: 'employee', password: 'emp123' } }),
-      db.employee.create({ data: { empId: 'EMP004', name: 'Sneha Reddy', email: 'sneha@company.com', phone: '+91-9876543214', department: 'Finance', position: 'Accountant', salary: 48000, role: 'employee', password: 'emp123' } }),
-      db.employee.create({ data: { empId: 'EMP005', name: 'Vikram Singh', email: 'vikram@company.com', phone: '+91-9876543215', department: 'Operations', position: 'Operations Lead', salary: 52000, role: 'employee', password: 'emp123' } }),
+      db.employee.create({ data: { empId: 'EMP001', name: 'Rahul Sharma', email: 'rahul@company.com', phone: '+91-9876543211', department: 'Sales', position: 'Sales Executive', salary: 50000, role: 'employee', subRole: 'sales', password: 'emp123' } }),
+      db.employee.create({ data: { empId: 'EMP002', name: 'Priya Patel', email: 'priya@company.com', phone: '+91-9876543212', department: 'Sales', position: 'Sales Representative', salary: 45000, role: 'employee', subRole: 'sales', password: 'emp123' } }),
+      db.employee.create({ data: { empId: 'EMP003', name: 'Amit Kumar', email: 'amit@company.com', phone: '+91-9876543213', department: 'Pre-Sales', position: 'Pre-Sales Consultant', salary: 40000, role: 'employee', subRole: 'presales', password: 'emp123' } }),
+      db.employee.create({ data: { empId: 'EMP004', name: 'Sneha Reddy', email: 'sneha@company.com', phone: '+91-9876543214', department: 'Pre-Sales', position: 'Pre-Sales Analyst', salary: 48000, role: 'employee', subRole: 'presales', password: 'emp123' } }),
+      db.employee.create({ data: { empId: 'EMP005', name: 'Vikram Singh', email: 'vikram@company.com', phone: '+91-9876543215', department: 'Sales', position: 'Sales Lead', salary: 52000, role: 'employee', subRole: 'sales', password: 'emp123' } }),
     ]);
 
     // Create Leave Types
@@ -35,9 +53,9 @@ export async function POST() {
       db.leaveType.create({ data: { name: 'Maternity Leave', description: 'Maternity leave for female employees', defaultDays: 180 } }),
     ]);
 
-    // Create Leave Balances for all employees
+    // Create Leave Balances for all employees + manager
     const year = new Date().getFullYear();
-    for (const emp of [...employees]) {
+    for (const emp of [manager, ...employees]) {
       for (const lt of leaveTypes) {
         await db.leaveBalance.create({
           data: {
@@ -53,7 +71,9 @@ export async function POST() {
 
     return NextResponse.json({
       message: 'Database seeded successfully',
+      superAdmin: { empId: superAdmin.empId, name: superAdmin.name },
       admin: { empId: admin.empId, name: admin.name },
+      manager: { empId: manager.empId, name: manager.name },
       employees: employees.length,
       leaveTypes: leaveTypes.length,
     });

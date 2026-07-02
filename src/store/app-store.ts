@@ -9,6 +9,7 @@ interface User {
   position: string;
   salary: number;
   role: string;
+  subRole?: string;
   photoUrl?: string;
 }
 

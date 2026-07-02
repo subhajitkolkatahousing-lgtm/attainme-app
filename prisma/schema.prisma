@@ -19,7 +19,8 @@ model Employee {
   position  String
   salary    Float
   joinDate  DateTime @default(now())
-  role      String   @default("employee")
+  role      String   @default("employee")  // super_admin, admin, manager, employee
+  subRole   String?  // presales, sales (only for role=employee)
   password  String
   photoUrl  String?
   active    Boolean  @default(true)

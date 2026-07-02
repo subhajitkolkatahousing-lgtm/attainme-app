@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
       position: employee.position,
       salary: employee.salary,
       role: employee.role,
+      subRole: employee.subRole,
       photoUrl: employee.photoUrl,
     });
   } catch (error) {

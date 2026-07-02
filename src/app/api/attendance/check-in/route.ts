@@ -4,42 +4,59 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function POST(req: NextRequest) {
   try {
     const data = await req.json();
-    const { employeeId, photo, latitude, longitude, address } = data;
+    const { employeeId, photo, latitude, longitude, address, isManual, manualCheckIn } = data;
 
     if (!employeeId) {
       return NextResponse.json({ error: 'Employee ID is required' }, { status: 400 });
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    // Location is required for non-manual check-ins
+    if (!isManual && (!latitude || !longitude)) {
+      return NextResponse.json({ error: 'Location is required for check-in. Please enable GPS and allow location permission.' }, { status: 400 });
+    }
 
-    // Check if already checked in today
+    // For manual entries, allow specifying the date from manualCheckIn
+    let date: string;
+    if (isManual && manualCheckIn) {
+      const d = new Date(manualCheckIn);
+      date = d.toISOString().split('T')[0];
+    } else {
+      date = new Date().toISOString().split('T')[0];
+    }
+
+    // Check if already checked in on that date
     const existing = await db.attendance.findUnique({
-      where: { employeeId_date: { employeeId, date: today } },
+      where: { employeeId_date: { employeeId, date } },
     });
 
     if (existing && existing.checkIn) {
-      return NextResponse.json({ error: 'Already checked in today. Please check out first.' }, { status: 400 });
+      return NextResponse.json({ error: 'Already checked in on this date. Please check out first.' }, { status: 400 });
     }
 
+    const checkInTime = (isManual && manualCheckIn) ? new Date(manualCheckIn) : new Date();
+
     const attendance = await db.attendance.upsert({
-      where: { employeeId_date: { employeeId, date: today } },
+      where: { employeeId_date: { employeeId, date } },
       update: {
-        checkIn: new Date(),
+        checkIn: checkInTime,
         checkInLat: latitude || null,
         checkInLng: longitude || null,
         checkInPhoto: photo || null,
         checkInAddr: address || null,
-        status: 'pending', // Changed to pending - admin will approve
+        status: isManual ? 'approved' : 'pending',
+        ...(isManual ? { isRegularised: true, regulariseReason: 'Manual entry by admin/manager' } : {}),
       },
       create: {
         employeeId,
-        date: today,
-        checkIn: new Date(),
+        date,
+        checkIn: checkInTime,
         checkInLat: latitude || null,
         checkInLng: longitude || null,
         checkInPhoto: photo || null,
         checkInAddr: address || null,
-        status: 'pending', // Changed to pending - admin will approve
+        status: isManual ? 'approved' : 'pending',
+        isRegularised: isManual ? true : false,
+        regulariseReason: isManual ? 'Manual entry by admin/manager' : null,
       },
     });
 

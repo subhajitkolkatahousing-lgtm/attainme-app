@@ -4,10 +4,15 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function POST(req: NextRequest) {
   try {
     const data = await req.json();
-    const { employeeId, photo, latitude, longitude, address } = data;
+    const { employeeId, photo, latitude, longitude, address, isManual, manualCheckOut } = data;
 
     if (!employeeId) {
       return NextResponse.json({ error: 'Employee ID is required' }, { status: 400 });
+    }
+
+    // Location is required for non-manual check-outs
+    if (!isManual && (!latitude || !longitude)) {
+      return NextResponse.json({ error: 'Location is required for check-out. Please enable GPS and allow location permission.' }, { status: 400 });
     }
 
     const today = new Date().toISOString().split('T')[0];
@@ -24,7 +29,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Already checked out today' }, { status: 400 });
     }
 
-    const checkOutTime = new Date();
+    const checkOutTime = (isManual && manualCheckOut) ? new Date(manualCheckOut) : new Date();
     const workHours = (checkOutTime.getTime() - new Date(existing.checkIn).getTime()) / (1000 * 60 * 60);
 
     const attendance = await db.attendance.update({
@@ -35,7 +40,7 @@ export async function POST(req: NextRequest) {
         checkOutLng: longitude || null,
         checkOutPhoto: photo || null,
         checkOutAddr: address || null,
-        status: 'pending', // Changed to pending - admin will approve
+        status: isManual ? 'approved' : 'pending',
         workHours: Math.round(workHours * 100) / 100,
       },
     });
