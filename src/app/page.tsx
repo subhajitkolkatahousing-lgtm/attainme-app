@@ -26,6 +26,7 @@ import {
   BookOpen, X, Download, Smartphone, Zap,
   BarChart3, Globe, ChevronRight, Plane, Phone, Image as ImageIcon,
   IndianRupee, Send, TrendingUp, UsersRound, BadgeCheck, Menu,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
@@ -754,8 +755,11 @@ export default function HomePage() {
           <div className={`mt-5 p-3 rounded-xl max-w-md mx-auto ${darkMode ? 'bg-gray-800' : 'bg-gray-50'}`}>
             <p className={`text-xs font-semibold mb-2 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Demo Credentials:</p>
             <div className={`text-xs space-y-1 ${darkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+              <p><span className="font-medium">Super Admin:</span> SUADMIN01 / super123</p>
               <p><span className="font-medium">Admin:</span> ADMIN001 / admin123</p>
-              <p><span className="font-medium">Employee:</span> EMP001 / emp123</p>
+              <p><span className="font-medium">Manager:</span> MGR001 / mgr123</p>
+              <p><span className="font-medium">Sales:</span> EMP001 / emp123</p>
+              <p><span className="font-medium">Pre-Sales:</span> EMP003 / emp123</p>
             </div>
           </div>
         </div>
@@ -1121,8 +1125,25 @@ export default function HomePage() {
                       {a.checkOutPhoto && <button onClick={() => setPhotoView({ photo: a.checkOutPhoto!, label: 'Check Out Photo' })} className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-medium ${dm ? 'bg-red-900/30 text-red-400' : 'bg-red-50 text-red-700'}`}><Eye className="w-3 h-3" /> Check Out Photo</button>}
                     </div>
 
-                    {a.checkInAddr && <p className={`text-xs mt-2 ${dm ? 'text-gray-500' : 'text-gray-400'}`}><MapPin className="w-3 h-3 inline mr-1" />{a.checkInAddr}</p>}
-                    {a.checkOutAddr && <p className={`text-xs ${dm ? 'text-gray-500' : 'text-gray-400'}`}><MapPin className="w-3 h-3 inline mr-1" />{a.checkOutAddr}</p>}
+                    {a.checkInAddr && a.checkInLat && a.checkInLng ? (
+                      <a href={`https://www.google.com/maps?q=${a.checkInLat},${a.checkInLng}`} target="_blank" rel="noopener noreferrer" className={`flex items-start gap-1.5 mt-2 text-xs ${dm ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-800'} underline`}>
+                        <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                        <span className="line-clamp-2">{a.checkInAddr}</span>
+                        <Globe className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                      </a>
+                    ) : a.checkInAddr ? (
+                      <p className={`text-xs mt-2 ${dm ? 'text-gray-500' : 'text-gray-400'}`}><MapPin className="w-3 h-3 inline mr-1" />{a.checkInAddr}</p>
+                    ) : null}
+                    {a.checkOutAddr && a.checkOutLat && a.checkOutLng ? (
+                      <a href={`https://www.google.com/maps?q=${a.checkOutLat},${a.checkOutLng}`} target="_blank" rel="noopener noreferrer" className={`flex items-start gap-1.5 text-xs ${dm ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-800'} underline`}>
+                        <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                        <span className="line-clamp-2">{a.checkOutAddr}</span>
+                        <Globe className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                      </a>
+                    ) : a.checkOutAddr ? (
+                      <p className={`text-xs ${dm ? 'text-gray-500' : 'text-gray-400'}`}><MapPin className="w-3 h-3 inline mr-1" />{a.checkOutAddr}</p>
+                    ) : null}
+                    {!a.checkInAddr && !a.checkOutAddr && <p className="text-xs mt-2 text-red-400"><AlertTriangle className="w-3 h-3 inline mr-1" />No location data</p>}
 
                     <div className="flex gap-2 mt-3">
                       <Button onClick={() => handleAttendanceAction(a.id, 'approve')} className="flex-1 h-10 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold"><CheckCircle2 className="w-4 h-4 mr-1" /> Approve</Button>
@@ -1551,7 +1572,13 @@ export default function HomePage() {
               {attendanceHistory.map(r => (
                 <Card key={r.id} className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
                   <CardContent className="p-3"><div className="flex items-center justify-between">
-                    <div><p className={`text-sm font-semibold ${dm ? 'text-white' : ''}`}>{formatDate(r.date)}</p><p className={`text-xs ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{formatTime(r.checkIn)} - {formatTime(r.checkOut)}</p></div>
+                    <div className="flex-1 min-w-0"><p className={`text-sm font-semibold ${dm ? 'text-white' : ''}`}>{formatDate(r.date)}</p><p className={`text-xs ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{formatTime(r.checkIn)} - {formatTime(r.checkOut)}</p>
+                    {r.checkInAddr && r.checkInLat && r.checkInLng && (
+                      <a href={`https://www.google.com/maps?q=${r.checkInLat},${r.checkInLng}`} target="_blank" rel="noopener noreferrer" className={`text-[10px] flex items-start gap-1 mt-1 ${dm ? 'text-blue-400' : 'text-blue-600'} underline`}>
+                        <MapPin className="w-2.5 h-2.5 mt-0.5 flex-shrink-0" /><span className="line-clamp-1">{r.checkInAddr}</span>
+                      </a>
+                    )}
+                    </div>
                     <div className="text-right"><Badge className={`${r.status === 'approved' ? 'bg-blue-100 text-blue-700' : r.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'} text-[10px]`}>{r.status}</Badge></div>
                   </div></CardContent>
                 </Card>
