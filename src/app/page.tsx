@@ -141,11 +141,20 @@ export default function HomePage() {
   const [employees, setEmployees] = useState<any[]>([]);
   const [showAddEmployee, setShowAddEmployee] = useState(false);
   const [newEmployee, setNewEmployee] = useState({ empId: '', name: '', email: '', phone: '', department: '', position: '', salary: '', role: 'employee', subRole: 'sales', password: '' });
+  const [editingEmployee, setEditingEmployee] = useState<any>(null);
+  const [showEditEmployee, setShowEditEmployee] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   // Payroll
   const [payrollRecords, setPayrollRecords] = useState<PayrollRecord[]>([]);
   const [payrollMonth, setPayrollMonth] = useState(new Date().getMonth() + 1);
   const [payrollYear, setPayrollYear] = useState(new Date().getFullYear());
+  const [editingPayroll, setEditingPayroll] = useState<PayrollRecord | null>(null);
+  const [showEditPayroll, setShowEditPayroll] = useState(false);
+
+  // Leave edit
+  const [editingLeave, setEditingLeave] = useState<LeaveApplication | null>(null);
+  const [showEditLeave, setShowEditLeave] = useState(false);
   const [generatingPayroll, setGeneratingPayroll] = useState(false);
 
   // Leave
@@ -180,6 +189,8 @@ export default function HomePage() {
   const [manualDate, setManualDate] = useState(new Date().toISOString().split('T')[0]);
   const [manualCheckIn, setManualCheckIn] = useState('09:00');
   const [manualCheckOut, setManualCheckOut] = useState('18:00');
+  const [manualType, setManualType] = useState<'attendance' | 'week_off' | 'leave'>('attendance');
+  const [manualLeaveType, setManualLeaveType] = useState('');
 
   // Dark mode persist
   useEffect(() => {
@@ -479,6 +490,58 @@ export default function HomePage() {
     } catch {}
   };
 
+  const handleEditEmployee = async () => {
+    if (!editingEmployee) return;
+    try {
+      const res = await fetch('/api/employees/update', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(editingEmployee) });
+      const data = await res.json();
+      if (res.ok) {
+        toast({ title: 'Updated!', description: `${data.name} has been updated` }); setShowEditEmployee(false); setEditingEmployee(null);
+        const r2 = await fetch('/api/employees'); if (r2.ok) setEmployees(await r2.json());
+        const r3 = await fetch('/api/dashboard'); if (r3.ok) setDashboardStats(await r3.json());
+      } else { toast({ title: 'Error', description: data.error, variant: 'destructive' }); }
+    } catch { toast({ title: 'Error', variant: 'destructive' }); }
+  };
+
+  const handleDeleteEmployee = async (id: string) => {
+    try {
+      const res = await fetch(`/api/employees/delete?id=${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok) {
+        toast({ title: 'Deleted!', description: data.message }); setDeleteConfirm(null);
+        const r2 = await fetch('/api/employees'); if (r2.ok) setEmployees(await r2.json());
+        const r3 = await fetch('/api/dashboard'); if (r3.ok) setDashboardStats(await r3.json());
+      } else { toast({ title: 'Error', description: data.error, variant: 'destructive' }); }
+    } catch { toast({ title: 'Error', variant: 'destructive' }); }
+  };
+
+  const handleEditPayroll = async () => {
+    if (!editingPayroll) return;
+    try {
+      const res = await fetch('/api/payroll/update', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(editingPayroll) });
+      const data = await res.json();
+      if (res.ok) {
+        toast({ title: 'Payroll Updated!', description: `${data.employee?.name} - ${MONTH_FULL[data.month - 1]} ${data.year}` });
+        setShowEditPayroll(false); setEditingPayroll(null);
+        const r2 = await fetch('/api/payroll'); if (r2.ok) setPayrollRecords(await r2.json());
+        const r3 = await fetch('/api/dashboard'); if (r3.ok) setDashboardStats(await r3.json());
+      } else { toast({ title: 'Error', description: data.error, variant: 'destructive' }); }
+    } catch { toast({ title: 'Error', variant: 'destructive' }); }
+  };
+
+  const handleEditLeave = async () => {
+    if (!editingLeave) return;
+    try {
+      const res = await fetch('/api/leave/update', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(editingLeave) });
+      const data = await res.json();
+      if (res.ok) {
+        toast({ title: 'Leave Updated!' }); setShowEditLeave(false); setEditingLeave(null);
+        const r2 = await fetch('/api/leave/apply?status=pending'); if (r2.ok) setLeaveApplications(await r2.json());
+        const r3 = await fetch('/api/leave/balance?employeeId=all'); if (r3.ok) setAllLeaveBalances(await r3.json());
+      } else { toast({ title: 'Error', description: data.error, variant: 'destructive' }); }
+    } catch { toast({ title: 'Error', variant: 'destructive' }); }
+  };
+
   const handleGeneratePayroll = async () => {
     setGeneratingPayroll(true);
     try {
@@ -552,58 +615,98 @@ export default function HomePage() {
 
   // ===== MANUAL ATTENDANCE (for Presales employees) =====
   const handleManualAttendance = async () => {
-    if (!user || !manualEmpId || !manualDate || !manualCheckIn) {
-      toast({ title: 'Missing Fields', description: 'Select employee, date and check-in time', variant: 'destructive' });
+    if (!user || !manualEmpId || !manualDate) {
+      toast({ title: 'Missing Fields', description: 'Select employee and date', variant: 'destructive' });
       return;
     }
     setIsLoading(true);
     try {
-      const checkInTime = new Date(`${manualDate}T${manualCheckIn}:00`);
-      const checkOutTime = manualCheckOut ? new Date(`${manualDate}T${manualCheckOut}:00`) : null;
-      const workHours = checkOutTime ? Math.round(((checkOutTime.getTime() - checkInTime.getTime()) / (1000 * 60 * 60)) * 100) / 100 : null;
-
-      const res = await fetch('/api/attendance/check-in', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          employeeId: manualEmpId,
-          photo: null,
-          latitude: null,
-          longitude: null,
-          address: 'Manual Entry',
-          manualCheckIn: checkInTime.toISOString(),
-          isManual: true,
-        }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        // If check-out time provided, check out too
-        if (checkOutTime && data.id) {
-          await fetch('/api/attendance/check-out', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              employeeId: manualEmpId,
-              photo: null,
-              latitude: null,
-              longitude: null,
-              address: 'Manual Entry',
-              manualCheckOut: checkOutTime.toISOString(),
-              isManual: true,
-              attendanceId: data.id,
-            }),
-          });
-        }
-        // Auto-approve manual attendance
-        await fetch('/api/attendance/approve', {
+      if (manualType === 'week_off') {
+        // Create a week-off record (no check-in/out, status approved)
+        const res = await fetch('/api/attendance/check-in', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ attendanceId: data.id, action: 'approve', adminId: user.id }),
+          body: JSON.stringify({
+            employeeId: manualEmpId,
+            photo: null, latitude: null, longitude: null,
+            address: 'Week Off',
+            manualCheckIn: new Date(`${manualDate}T00:00:00`).toISOString(),
+            isManual: true,
+            manualStatus: 'week_off',
+          }),
         });
+        const data = await res.json();
+        if (res.ok) {
+          if (data.id) {
+            await fetch('/api/attendance/approve', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ attendanceId: data.id, action: 'approve', adminId: user.id }),
+            });
+          }
+          toast({ title: 'Week Off Added!', description: `Week off for ${manualDate}` });
+          setManualEmpId(''); setManualDate(new Date().toISOString().split('T')[0]); setManualType('attendance');
+          const r2 = await fetch('/api/attendance/approve?status=pending'); if (r2.ok) setPendingAttendance(await r2.json());
+          const r3 = await fetch('/api/dashboard'); if (r3.ok) setDashboardStats(await r3.json());
+        } else { toast({ title: 'Error', description: data.error, variant: 'destructive' }); }
+      } else if (manualType === 'leave') {
+        if (!manualLeaveType) { toast({ title: 'Missing', description: 'Select leave type', variant: 'destructive' }); setIsLoading(false); return; }
+        // Create a leave application and auto-approve
+        const res = await fetch('/api/leave/apply', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            employeeId: manualEmpId,
+            leaveTypeId: manualLeaveType,
+            startDate: manualDate,
+            endDate: manualDate,
+            reason: 'Manual leave entry by admin',
+          }),
+        });
+        const data = await res.json();
+        if (res.ok && data.id) {
+          // Auto-approve the leave
+          await fetch('/api/leave/approve', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ applicationId: data.id, action: 'approve', adminId: user.id }),
+          });
+          toast({ title: 'Leave Added!', description: `Leave for ${manualDate}` });
+          setManualEmpId(''); setManualDate(new Date().toISOString().split('T')[0]); setManualType('attendance'); setManualLeaveType('');
+          const r2 = await fetch('/api/leave/apply?status=pending'); if (r2.ok) setLeaveApplications(await r2.json());
+          const r3 = await fetch('/api/leave/balance?employeeId=all'); if (r3.ok) setAllLeaveBalances(await r3.json());
+          const r4 = await fetch('/api/dashboard'); if (r4.ok) setDashboardStats(await r4.json());
+        } else { toast({ title: 'Error', description: data.error, variant: 'destructive' }); }
+      } else {
+        // Regular manual attendance
+        if (!manualCheckIn) { toast({ title: 'Missing Fields', description: 'Check-in time required', variant: 'destructive' }); setIsLoading(false); return; }
+        const checkInTime = new Date(`${manualDate}T${manualCheckIn}:00`);
+        const checkOutTime = manualCheckOut ? new Date(`${manualDate}T${manualCheckOut}:00`) : null;
 
-        toast({ title: 'Attendance Added!', description: `Manual attendance for ${manualDate}` });
-        setManualEmpId(''); setManualDate(new Date().toISOString().split('T')[0]); setManualCheckIn('09:00'); setManualCheckOut('18:00');
-        // Refresh data
-        const r2 = await fetch('/api/attendance/approve?status=pending'); if (r2.ok) setPendingAttendance(await r2.json());
-        const r3 = await fetch('/api/dashboard'); if (r3.ok) setDashboardStats(await r3.json());
-      } else { toast({ title: 'Error', description: data.error, variant: 'destructive' }); }
+        const res = await fetch('/api/attendance/check-in', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            employeeId: manualEmpId, photo: null, latitude: null, longitude: null,
+            address: 'Manual Entry', manualCheckIn: checkInTime.toISOString(), isManual: true,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          if (checkOutTime && data.id) {
+            await fetch('/api/attendance/check-out', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                employeeId: manualEmpId, photo: null, latitude: null, longitude: null,
+                address: 'Manual Entry', manualCheckOut: checkOutTime.toISOString(), isManual: true, attendanceId: data.id,
+              }),
+            });
+          }
+          await fetch('/api/attendance/approve', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ attendanceId: data.id, action: 'approve', adminId: user.id }),
+          });
+          toast({ title: 'Attendance Added!', description: `Manual attendance for ${manualDate}` });
+          setManualEmpId(''); setManualDate(new Date().toISOString().split('T')[0]); setManualCheckIn('09:00'); setManualCheckOut('18:00'); setManualType('attendance');
+          const r2 = await fetch('/api/attendance/approve?status=pending'); if (r2.ok) setPendingAttendance(await r2.json());
+          const r3 = await fetch('/api/dashboard'); if (r3.ok) setDashboardStats(await r3.json());
+        } else { toast({ title: 'Error', description: data.error, variant: 'destructive' }); }
+      }
     } catch { toast({ title: 'Error', variant: 'destructive' }); }
     setIsLoading(false);
   };
@@ -1195,14 +1298,58 @@ export default function HomePage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {employees.map(emp => (
               <Card key={emp.id} className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
-                <CardContent className="p-4"><div className="flex items-center gap-3">
-                  <Avatar className="w-11 h-11"><AvatarFallback className="bg-blue-100 text-blue-700 font-bold text-sm">{emp.name.split(' ').map((n: string) => n[0]).join('')}</AvatarFallback></Avatar>
-                  <div className="flex-1 min-w-0"><p className={`font-semibold text-sm ${dm ? 'text-white' : ''}`}>{emp.name}</p><p className={`text-xs ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{emp.empId} · {emp.department}</p></div>
-                  <div className="text-right"><p className={`text-sm font-bold ${dm ? 'text-white' : ''}`}>₹{emp.salary.toLocaleString('en-IN')}</p><Badge className={`${emp.role === 'super_admin' ? 'bg-red-100 text-red-700' : emp.role === 'admin' ? 'bg-purple-100 text-purple-700' : emp.role === 'manager' ? 'bg-blue-100 text-blue-700' : emp.subRole === 'presales' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'} text-[10px]`}>{emp.role === 'employee' ? (emp.subRole === 'presales' ? 'Pre-Sales' : 'Sales') : emp.role === 'super_admin' ? 'Super Admin' : emp.role === 'manager' ? 'Manager' : 'Admin'}</Badge></div>
-                </div></CardContent>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <Avatar className="w-11 h-11"><AvatarFallback className="bg-blue-100 text-blue-700 font-bold text-sm">{emp.name.split(' ').map((n: string) => n[0]).join('')}</AvatarFallback></Avatar>
+                    <div className="flex-1 min-w-0"><p className={`font-semibold text-sm ${dm ? 'text-white' : ''}`}>{emp.name}</p><p className={`text-xs ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{emp.empId} · {emp.department}</p><Badge className={`${emp.role === 'super_admin' ? 'bg-red-100 text-red-700' : emp.role === 'admin' ? 'bg-purple-100 text-purple-700' : emp.role === 'manager' ? 'bg-blue-100 text-blue-700' : emp.subRole === 'presales' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'} text-[10px] mt-1`}>{emp.role === 'employee' ? (emp.subRole === 'presales' ? 'Pre-Sales' : 'Sales') : emp.role === 'super_admin' ? 'Super Admin' : emp.role === 'manager' ? 'Manager' : 'Admin'}</Badge></div>
+                    <div className="text-right"><p className={`text-sm font-bold ${dm ? 'text-white' : ''}`}>₹{emp.salary.toLocaleString('en-IN')}</p></div>
+                  </div>
+                  <div className="flex gap-2 mt-3">
+                    <Button onClick={() => { setEditingEmployee({ id: emp.id, name: emp.name, email: emp.email, phone: emp.phone || '', department: emp.department, position: emp.position, salary: String(emp.salary), role: emp.role, subRole: emp.subRole || '', password: '' }); setShowEditEmployee(true); }} variant="outline" size="sm" className={`flex-1 h-8 rounded-lg text-xs ${dm ? 'border-gray-700 text-gray-300 hover:bg-gray-800' : 'border-gray-200'}`}><BadgeCheck className="w-3 h-3 mr-1" /> Edit</Button>
+                    {deleteConfirm === emp.id ? (
+                      <div className="flex gap-1 flex-1">
+                        <Button onClick={() => handleDeleteEmployee(emp.id)} size="sm" className="flex-1 h-8 rounded-lg text-xs bg-red-600 hover:bg-red-700 text-white">Confirm</Button>
+                        <Button onClick={() => setDeleteConfirm(null)} variant="outline" size="sm" className="flex-1 h-8 rounded-lg text-xs">Cancel</Button>
+                      </div>
+                    ) : (
+                      <Button onClick={() => setDeleteConfirm(emp.id)} variant="outline" size="sm" className="flex-1 h-8 rounded-lg text-xs text-red-600 border-red-200 hover:bg-red-50"><XCircle className="w-3 h-3 mr-1" /> Delete</Button>
+                    )}
+                  </div>
+                </CardContent>
               </Card>
             ))}
           </div>
+
+          {/* Edit Employee Dialog */}
+          <Dialog open={showEditEmployee} onOpenChange={setShowEditEmployee}>
+            <DialogContent className={`max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl ${dm ? 'bg-gray-900 border-gray-800' : ''}`}>
+              <DialogHeader><DialogTitle className={dm ? 'text-white' : ''}>Edit Employee</DialogTitle></DialogHeader>
+              {editingEmployee && (
+                <div className="grid gap-3 py-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><Label className="text-xs">Full Name *</Label><Input value={editingEmployee.name} onChange={e => setEditingEmployee({ ...editingEmployee, name: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
+                    <div><Label className="text-xs">Email *</Label><Input type="email" value={editingEmployee.email} onChange={e => setEditingEmployee({ ...editingEmployee, email: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><Label className="text-xs">Phone</Label><Input value={editingEmployee.phone || ''} onChange={e => setEditingEmployee({ ...editingEmployee, phone: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
+                    <div><Label className="text-xs">Department *</Label><Select value={editingEmployee.department} onValueChange={v => setEditingEmployee({ ...editingEmployee, department: v })}><SelectTrigger className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Engineering">Engineering</SelectItem><SelectItem value="Design">Design</SelectItem><SelectItem value="Marketing">Marketing</SelectItem><SelectItem value="Finance">Finance</SelectItem><SelectItem value="HR">HR</SelectItem><SelectItem value="Operations">Operations</SelectItem><SelectItem value="Sales">Sales</SelectItem><SelectItem value="Pre-Sales">Pre-Sales</SelectItem></SelectContent></Select></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><Label className="text-xs">Position *</Label><Input value={editingEmployee.position} onChange={e => setEditingEmployee({ ...editingEmployee, position: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
+                    <div><Label className="text-xs">Salary (₹) *</Label><Input type="number" value={editingEmployee.salary} onChange={e => setEditingEmployee({ ...editingEmployee, salary: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><Label className="text-xs">Role *</Label><Select value={editingEmployee.role} onValueChange={v => setEditingEmployee({ ...editingEmployee, role: v, subRole: v !== 'employee' ? '' : editingEmployee.subRole || 'sales' })}><SelectTrigger className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="employee">Employee</SelectItem><SelectItem value="manager">Manager</SelectItem><SelectItem value="admin">Admin</SelectItem><SelectItem value="super_admin">Super Admin</SelectItem></SelectContent></Select></div>
+                    {editingEmployee.role === 'employee' && (
+                      <div><Label className="text-xs">Employee Type *</Label><Select value={editingEmployee.subRole || 'sales'} onValueChange={v => setEditingEmployee({ ...editingEmployee, subRole: v })}><SelectTrigger className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="sales">Sales (Photo Check-In)</SelectItem><SelectItem value="presales">Pre-Sales (Manual Attendance)</SelectItem></SelectContent></Select></div>
+                    )}
+                  </div>
+                  <div><Label className="text-xs">New Password (leave blank to keep current)</Label><Input type="password" placeholder="Leave blank to keep" value={editingEmployee.password || ''} onChange={e => setEditingEmployee({ ...editingEmployee, password: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
+                </div>
+              )}
+              <DialogFooter><Button variant="outline" onClick={() => setShowEditEmployee(false)} className="rounded-xl">Cancel</Button><Button onClick={handleEditEmployee} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl">Save Changes</Button></DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       )}
 
@@ -1210,9 +1357,31 @@ export default function HomePage() {
       {currentView === 'manual-attendance' && isPowerUser && (
         <div className="space-y-4">
           <h2 className={`text-xl font-bold ${dm ? 'text-white' : ''}`}>Manual Attendance Entry</h2>
-          <p className={`text-sm ${dm ? 'text-gray-400' : 'text-gray-500'}`}>Add attendance for Pre-Sales employees (no photo required). Attendance will be auto-approved.</p>
+          <p className={`text-sm ${dm ? 'text-gray-400' : 'text-gray-500'}`}>Add attendance, week off, or leave for employees. Entries will be auto-approved.</p>
           <Card className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
             <CardContent className="p-5 space-y-4">
+              {/* Type selector */}
+              <div>
+                <Label className={`text-xs ${dm ? 'text-gray-300' : ''}`}>Entry Type *</Label>
+                <div className="grid grid-cols-3 gap-2 mt-1">
+                  {[
+                    { id: 'attendance', label: 'Attendance', icon: Clock, color: 'blue' },
+                    { id: 'week_off', label: 'Week Off', icon: Moon, color: 'purple' },
+                    { id: 'leave', label: 'Leave', icon: CalendarDays, color: 'amber' },
+                  ].map(t => (
+                    <button key={t.id} onClick={() => setManualType(t.id as any)}
+                      className={`flex flex-col items-center gap-1 p-3 rounded-xl text-xs font-medium transition-all ${
+                        manualType === t.id
+                          ? t.color === 'blue' ? 'bg-blue-600 text-white shadow-md' : t.color === 'purple' ? 'bg-purple-600 text-white shadow-md' : 'bg-amber-500 text-white shadow-md'
+                          : dm ? 'bg-gray-800 text-gray-400 hover:bg-gray-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}>
+                      <t.icon className="w-5 h-5" />
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div>
                 <Label className={`text-xs ${dm ? 'text-gray-300' : ''}`}>Select Employee *</Label>
                 <Select value={manualEmpId} onValueChange={setManualEmpId}>
@@ -1233,18 +1402,38 @@ export default function HomePage() {
                 <Label className={`text-xs ${dm ? 'text-gray-300' : ''}`}>Date *</Label>
                 <Input type="date" value={manualDate} onChange={e => setManualDate(e.target.value)} className={`h-10 rounded-xl mt-1 ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className={`text-xs ${dm ? 'text-gray-300' : ''}`}>Check In Time *</Label>
-                  <Input type="time" value={manualCheckIn} onChange={e => setManualCheckIn(e.target.value)} className={`h-10 rounded-xl mt-1 ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} />
+
+              {manualType === 'attendance' && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className={`text-xs ${dm ? 'text-gray-300' : ''}`}>Check In Time *</Label>
+                    <Input type="time" value={manualCheckIn} onChange={e => setManualCheckIn(e.target.value)} className={`h-10 rounded-xl mt-1 ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} />
+                  </div>
+                  <div>
+                    <Label className={`text-xs ${dm ? 'text-gray-300' : ''}`}>Check Out Time</Label>
+                    <Input type="time" value={manualCheckOut} onChange={e => setManualCheckOut(e.target.value)} className={`h-10 rounded-xl mt-1 ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} />
+                  </div>
                 </div>
+              )}
+
+              {manualType === 'leave' && (
                 <div>
-                  <Label className={`text-xs ${dm ? 'text-gray-300' : ''}`}>Check Out Time</Label>
-                  <Input type="time" value={manualCheckOut} onChange={e => setManualCheckOut(e.target.value)} className={`h-10 rounded-xl mt-1 ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} />
+                  <Label className={`text-xs ${dm ? 'text-gray-300' : ''}`}>Leave Type *</Label>
+                  <Select value={manualLeaveType} onValueChange={setManualLeaveType}>
+                    <SelectTrigger className={`h-10 rounded-xl mt-1 ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}>
+                      <SelectValue placeholder="Select leave type..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {leaveTypes.map(lt => (
+                        <SelectItem key={lt.id} value={lt.id}>{lt.name} ({lt.defaultDays} days/yr)</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              </div>
-              <Button onClick={handleManualAttendance} disabled={isLoading || !manualEmpId} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-base font-semibold">
-                {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <><CheckCircle2 className="w-5 h-5 mr-2" /> Submit Attendance</>}
+              )}
+
+              <Button onClick={handleManualAttendance} disabled={isLoading || !manualEmpId || (manualType === 'leave' && !manualLeaveType)} className={`w-full h-12 rounded-xl text-base font-semibold text-white ${manualType === 'week_off' ? 'bg-purple-600 hover:bg-purple-700' : manualType === 'leave' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : manualType === 'week_off' ? <><Moon className="w-5 h-5 mr-2" /> Submit Week Off</> : manualType === 'leave' ? <><CalendarDays className="w-5 h-5 mr-2" /> Submit Leave</> : <><CheckCircle2 className="w-5 h-5 mr-2" /> Submit Attendance</>}
               </Button>
             </CardContent>
           </Card>
@@ -1278,8 +1467,11 @@ export default function HomePage() {
                     <div className="text-right">
                       <p className={`text-lg font-bold ${dm ? 'text-white' : ''}`}>{formatCurrency(pr.netSalary)}</p>
                       <Badge className={pr.status === 'paid' ? 'bg-blue-100 text-blue-700 text-[10px]' : 'bg-amber-100 text-amber-700 text-[10px]'}>{pr.status}</Badge>
-                      {pr.status !== 'paid' && <Button onClick={() => handleMarkPaid(pr.id)} size="sm" className="ml-2 h-7 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg">Mark Paid</Button>}
                     </div>
+                  </div>
+                  <div className="flex gap-2 mt-3">
+                    <Button onClick={() => { setEditingPayroll({ ...pr }); setShowEditPayroll(true); }} variant="outline" size="sm" className={`flex-1 h-8 rounded-lg text-xs ${dm ? 'border-gray-700 text-gray-300 hover:bg-gray-800' : 'border-gray-200'}`}><BadgeCheck className="w-3 h-3 mr-1" /> Edit</Button>
+                    {pr.status !== 'paid' && <Button onClick={() => handleMarkPaid(pr.id)} size="sm" className="flex-1 h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg">Mark Paid</Button>}
                   </div>
                 </CardContent>
               </Card>
@@ -1366,6 +1558,7 @@ export default function HomePage() {
                   <div key={la.id} className={`p-3 rounded-xl ${dm ? 'bg-gray-800' : 'bg-gray-50'}`}>
                     <div className="flex items-start justify-between">
                       <div><p className={`text-sm font-semibold ${dm ? 'text-white' : ''}`}>{la.employee?.name}</p><p className={`text-xs ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{la.leaveType?.name} · {formatDate(la.startDate)} - {formatDate(la.endDate)}</p><p className={`text-xs mt-1 ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{la.reason}</p></div>
+                      <Button onClick={() => { setEditingLeave({ ...la }); setShowEditLeave(true); }} variant="ghost" size="sm" className={`h-7 w-7 p-0 ${dm ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-900'}`}><BadgeCheck className="w-3.5 h-3.5" /></Button>
                     </div>
                     <div className="flex gap-2 mt-2">
                       <Button onClick={() => handleLeaveAction(la.id, 'approve')} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs h-8"><CheckCircle2 className="w-3 h-3 mr-1" /> Approve</Button>
@@ -1891,6 +2084,56 @@ export default function HomePage() {
           {renderContent()}
         </div>
       </main>
+
+      {/* Edit Payroll Dialog */}
+      <Dialog open={showEditPayroll} onOpenChange={setShowEditPayroll}>
+        <DialogContent className={`max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl ${dm ? 'bg-gray-900 border-gray-800' : ''}`}>
+          <DialogHeader><DialogTitle className={dm ? 'text-white' : ''}>Edit Payroll</DialogTitle></DialogHeader>
+          {editingPayroll && (
+            <div className="grid gap-3 py-3">
+              <p className={`text-sm font-medium ${dm ? 'text-gray-300' : 'text-gray-600'}`}>{editingPayroll.employee?.name} · {MONTH_FULL[editingPayroll.month - 1]} {editingPayroll.year}</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label className="text-xs">Basic Salary (₹)</Label><Input type="number" value={editingPayroll.basicSalary} onChange={e => setEditingPayroll({ ...editingPayroll, basicSalary: parseFloat(e.target.value) || 0, netSalary: (parseFloat(e.target.value) || 0) + (editingPayroll.overtime || 0) - (editingPayroll.deductions || 0) + (editingPayroll.bonus || 0) })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
+                <div><Label className="text-xs">Working Days</Label><Input type="number" value={editingPayroll.workingDays} onChange={e => setEditingPayroll({ ...editingPayroll, workingDays: parseInt(e.target.value) || 0 })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label className="text-xs">Present Days</Label><Input type="number" value={editingPayroll.presentDays} onChange={e => setEditingPayroll({ ...editingPayroll, presentDays: parseInt(e.target.value) || 0 })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
+                <div><Label className="text-xs">Overtime (₹)</Label><Input type="number" value={editingPayroll.overtime} onChange={e => setEditingPayroll({ ...editingPayroll, overtime: parseFloat(e.target.value) || 0, netSalary: (editingPayroll.basicSalary || 0) + (parseFloat(e.target.value) || 0) - (editingPayroll.deductions || 0) + (editingPayroll.bonus || 0) })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label className="text-xs">Deductions (₹)</Label><Input type="number" value={editingPayroll.deductions} onChange={e => setEditingPayroll({ ...editingPayroll, deductions: parseFloat(e.target.value) || 0, netSalary: (editingPayroll.basicSalary || 0) + (editingPayroll.overtime || 0) - (parseFloat(e.target.value) || 0) + (editingPayroll.bonus || 0) })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
+                <div><Label className="text-xs">Bonus (₹)</Label><Input type="number" value={editingPayroll.bonus} onChange={e => setEditingPayroll({ ...editingPayroll, bonus: parseFloat(e.target.value) || 0, netSalary: (editingPayroll.basicSalary || 0) + (editingPayroll.overtime || 0) - (editingPayroll.deductions || 0) + (parseFloat(e.target.value) || 0) })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
+              </div>
+              <div className={`p-3 rounded-xl ${dm ? 'bg-gray-800' : 'bg-blue-50'} text-center`}>
+                <p className="text-xs text-gray-500 uppercase">Net Salary</p>
+                <p className={`text-2xl font-bold ${dm ? 'text-white' : 'text-blue-700'}`}>{formatCurrency(editingPayroll.netSalary)}</p>
+              </div>
+              <div><Label className="text-xs">Status</Label><Select value={editingPayroll.status} onValueChange={v => setEditingPayroll({ ...editingPayroll, status: v })}><SelectTrigger className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pending">Pending</SelectItem><SelectItem value="paid">Paid</SelectItem></SelectContent></Select></div>
+            </div>
+          )}
+          <DialogFooter><Button variant="outline" onClick={() => setShowEditPayroll(false)} className="rounded-xl">Cancel</Button><Button onClick={handleEditPayroll} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl">Save Changes</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Leave Dialog */}
+      <Dialog open={showEditLeave} onOpenChange={setShowEditLeave}>
+        <DialogContent className={`max-w-lg rounded-2xl ${dm ? 'bg-gray-900 border-gray-800' : ''}`}>
+          <DialogHeader><DialogTitle className={dm ? 'text-white' : ''}>Edit Leave Application</DialogTitle></DialogHeader>
+          {editingLeave && (
+            <div className="grid gap-3 py-3">
+              <p className={`text-sm font-medium ${dm ? 'text-gray-300' : 'text-gray-600'}`}>{editingLeave.employee?.name}</p>
+              <div><Label className="text-xs">Leave Type</Label><Select value={editingLeave.leaveTypeId} onValueChange={v => setEditingLeave({ ...editingLeave, leaveTypeId: v })}><SelectTrigger className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}><SelectValue /></SelectTrigger><SelectContent>{leaveTypes.map(lt => <SelectItem key={lt.id} value={lt.id}>{lt.name}</SelectItem>)}</SelectContent></Select></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label className="text-xs">Start Date</Label><Input type="date" value={editingLeave.startDate} onChange={e => setEditingLeave({ ...editingLeave, startDate: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
+                <div><Label className="text-xs">End Date</Label><Input type="date" value={editingLeave.endDate} onChange={e => setEditingLeave({ ...editingLeave, endDate: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
+              </div>
+              <div><Label className="text-xs">Reason</Label><Input value={editingLeave.reason} onChange={e => setEditingLeave({ ...editingLeave, reason: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
+              <div><Label className="text-xs">Status</Label><Select value={editingLeave.status} onValueChange={v => setEditingLeave({ ...editingLeave, status: v })}><SelectTrigger className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pending">Pending</SelectItem><SelectItem value="approved">Approved</SelectItem><SelectItem value="rejected">Rejected</SelectItem></SelectContent></Select></div>
+            </div>
+          )}
+          <DialogFooter><Button variant="outline" onClick={() => setShowEditLeave(false)} className="rounded-xl">Cancel</Button><Button onClick={handleEditLeave} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl">Save Changes</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Regularise Dialog */}
       <Dialog open={showRegularise} onOpenChange={setShowRegularise}>
