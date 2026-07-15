@@ -11,6 +11,12 @@ interface User {
   role: string;
   subRole?: string;
   photoUrl?: string;
+  bankAccount?: string;
+  bankIfsc?: string;
+  bankName?: string;
+  panNumber?: string;
+  phone?: string;
+  joinDate?: string;
 }
 
 interface AppState {
@@ -22,7 +28,7 @@ interface AppState {
   setHasHydrated: (state: boolean) => void;
 }
 
-const STORAGE_KEY = 'attendance-khata-store';
+const STORAGE_KEY = 'attain-me-store';
 
 const loadState = (): Partial<AppState> => {
   if (typeof window === 'undefined') return {};
@@ -68,4 +74,24 @@ if (typeof window !== 'undefined') {
   } else {
     useAppStore.setState({ _hasHydrated: true });
   }
+
+  // Fix back button logout: restore user from localStorage on popstate
+  window.addEventListener('popstate', () => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.user) {
+          const currentState = get();
+          if (!currentState.user && parsed.user) {
+            useAppStore.setState({ user: parsed.user, currentView: parsed.currentView || 'dashboard' });
+          }
+        }
+      }
+    } catch {}
+  });
+}
+
+function get() {
+  return useAppStore.getState();
 }

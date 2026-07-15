@@ -16,9 +16,14 @@ export async function GET() {
         position: true,
         salary: true,
         role: true,
+        subRole: true,
         joinDate: true,
         photoUrl: true,
         active: true,
+        bankAccount: true,
+        bankIfsc: true,
+        bankName: true,
+        panNumber: true,
       },
     });
     return NextResponse.json(employees);

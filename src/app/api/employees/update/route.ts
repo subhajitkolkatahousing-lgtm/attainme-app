@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function PUT(req: NextRequest) {
   try {
     const data = await req.json();
-    const { id, name, email, phone, department, position, salary, role, subRole, password, active } = data;
+    const { id, name, email, phone, department, position, salary, role, subRole, password, active, bankAccount, bankIfsc, bankName, panNumber, joinDate } = data;
 
     if (!id) {
       return NextResponse.json({ error: 'Employee ID is required' }, { status: 400 });
@@ -34,6 +34,11 @@ export async function PUT(req: NextRequest) {
     if (subRole !== undefined) updateData.subRole = subRole || null;
     if (password !== undefined && password !== '') updateData.password = password;
     if (active !== undefined) updateData.active = active;
+    if (bankAccount !== undefined) updateData.bankAccount = bankAccount || null;
+    if (bankIfsc !== undefined) updateData.bankIfsc = bankIfsc || null;
+    if (bankName !== undefined) updateData.bankName = bankName || null;
+    if (panNumber !== undefined) updateData.panNumber = panNumber || null;
+    if (joinDate !== undefined) updateData.joinDate = joinDate ? new Date(joinDate) : null;
 
     const updated = await db.employee.update({
       where: { id },
@@ -52,6 +57,11 @@ export async function PUT(req: NextRequest) {
       role: updated.role,
       subRole: updated.subRole,
       active: updated.active,
+      bankAccount: updated.bankAccount,
+      bankIfsc: updated.bankIfsc,
+      bankName: updated.bankName,
+      panNumber: updated.panNumber,
+      joinDate: updated.joinDate?.toISOString?.() || null,
     });
   } catch (error) {
     console.error('Update employee error:', error);

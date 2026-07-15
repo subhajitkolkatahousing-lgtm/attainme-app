@@ -9,7 +9,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Employee ID and password are required' }, { status: 400 });
     }
 
-    const employee = await db.employee.findUnique({ where: { empId } });
+    // Try to find by empId first, then by email
+    let employee = await db.employee.findUnique({ where: { empId } });
+    if (!employee) {
+      employee = await db.employee.findUnique({ where: { email: empId } });
+    }
 
     if (!employee) {
       return NextResponse.json({ error: 'Employee not found' }, { status: 404 });
@@ -28,12 +32,18 @@ export async function POST(req: NextRequest) {
       empId: employee.empId,
       name: employee.name,
       email: employee.email,
+      phone: employee.phone,
       department: employee.department,
       position: employee.position,
       salary: employee.salary,
       role: employee.role,
       subRole: employee.subRole,
       photoUrl: employee.photoUrl,
+      bankAccount: employee.bankAccount,
+      bankIfsc: employee.bankIfsc,
+      bankName: employee.bankName,
+      panNumber: employee.panNumber,
+      joinDate: employee.joinDate?.toISOString?.() || null,
     });
   } catch (error) {
     console.error('Login error:', error);

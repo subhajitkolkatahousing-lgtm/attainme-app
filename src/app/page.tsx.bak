@@ -168,24 +168,6 @@ export default function HomePage() {
   const [leaveApply, setLeaveApply] = useState({ leaveTypeId: '', startDate: '', endDate: '', reason: '' });
   const [showApplyLeave, setShowApplyLeave] = useState(false);
 
-  // My Details form
-  const [myDetailsForm, setMyDetailsForm] = useState({ name: '', email: '', phone: '', position: '', salary: '', bankAccount: '', bankIfsc: '', bankName: '', panNumber: '', joinDate: '' });
-
-  // Employee Details (Admin)
-  const [editingEmpDetail, setEditingEmpDetail] = useState<any>(null);
-  const [showEditEmpDetail, setShowEditEmpDetail] = useState(false);
-
-  // Leave Management extras
-  const [allLeaveApplications, setAllLeaveApplications] = useState<LeaveApplication[]>([]);
-  const [leaveFilter, setLeaveFilter] = useState<string>('all');
-  const [leaveEmpFilter, setLeaveEmpFilter] = useState<string>('all');
-  const [editingLeaveBalance, setEditingLeaveBalance] = useState<LeaveBalance | null>(null);
-  const [showEditLeaveBalance, setShowEditLeaveBalance] = useState(false);
-  const [lbEditTotalDays, setLbEditTotalDays] = useState<number>(0);
-  const [lbEditUsedDays, setLbEditUsedDays] = useState<number>(0);
-  const [editingLeaveType, setEditingLeaveType] = useState<LeaveType | null>(null);
-  const [showEditLeaveType, setShowEditLeaveType] = useState(false);
-
   // Regularise
   const [showRegularise, setShowRegularise] = useState(false);
   const [regulariseData, setRegulariseData] = useState({ employeeId: '', date: '', checkIn: '', checkOut: '', reason: '' });
@@ -218,7 +200,7 @@ export default function HomePage() {
 
   // Hydrate from localStorage on mount
   useEffect(() => {
-    const saved = localStorage.getItem('attain-me-store');
+    const saved = localStorage.getItem('attendance-khata-store');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -255,7 +237,6 @@ export default function HomePage() {
         try { const res = await fetch('/api/payroll'); const d = await res.json(); if (res.ok) setPayrollRecords(d); } catch {}
         try { const res = await fetch('/api/leave/types'); const d = await res.json(); if (res.ok) setLeaveTypes(d); } catch {}
         try { const res = await fetch('/api/leave/apply?status=pending'); const d = await res.json(); if (res.ok) setLeaveApplications(d); } catch {}
-        try { const res = await fetch('/api/leave/apply'); const d = await res.json(); if (res.ok) setAllLeaveApplications(d); } catch {}
         try { const res = await fetch('/api/leave/balance?employeeId=all'); const d = await res.json(); if (res.ok) setAllLeaveBalances(d); } catch {}
         try { const res = await fetch('/api/reimbursements'); const d = await res.json(); if (res.ok) setReimbursements(d); } catch {}
       }
@@ -273,25 +254,6 @@ export default function HomePage() {
 
   // Camera cleanup
   useEffect(() => { return () => { if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop()); }; }, []);
-
-  // Navigate helper (also initializes my-details form)
-  const navigateTo = (view: string) => {
-    setCurrentView(view);
-    if (view === 'my-details' && user) {
-      setMyDetailsForm({
-        name: user.name || '',
-        email: user.email || '',
-        phone: user.phone || '',
-        position: user.position || '',
-        salary: String(user.salary || ''),
-        bankAccount: user.bankAccount || '',
-        bankIfsc: user.bankIfsc || '',
-        bankName: user.bankName || '',
-        panNumber: user.panNumber || '',
-        joinDate: user.joinDate ? user.joinDate.split('T')[0] : '',
-      });
-    }
-  };
 
   // ===== CAMERA =====
   const startCamera = async () => {
@@ -575,57 +537,7 @@ export default function HomePage() {
       if (res.ok) {
         toast({ title: 'Leave Updated!' }); setShowEditLeave(false); setEditingLeave(null);
         const r2 = await fetch('/api/leave/apply?status=pending'); if (r2.ok) setLeaveApplications(await r2.json());
-        const r3 = await fetch('/api/leave/apply'); if (r3.ok) setAllLeaveApplications(await r3.json());
-        const r4 = await fetch('/api/leave/balance?employeeId=all'); if (r4.ok) setAllLeaveBalances(await r4.json());
-      } else { toast({ title: 'Error', description: data.error, variant: 'destructive' }); }
-    } catch { toast({ title: 'Error', variant: 'destructive' }); }
-  };
-
-  const handleEditLeaveType = async () => {
-    if (!editingLeaveType) return;
-    try {
-      const res = await fetch('/api/leave/types', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(editingLeaveType) });
-      const data = await res.json();
-      if (res.ok) {
-        toast({ title: 'Leave Type Updated!' }); setShowEditLeaveType(false); setEditingLeaveType(null);
-        const r2 = await fetch('/api/leave/types'); if (r2.ok) setLeaveTypes(await r2.json());
         const r3 = await fetch('/api/leave/balance?employeeId=all'); if (r3.ok) setAllLeaveBalances(await r3.json());
-      } else { toast({ title: 'Error', description: data.error, variant: 'destructive' }); }
-    } catch { toast({ title: 'Error', variant: 'destructive' }); }
-  };
-
-  const handleEditLeaveBalance = async () => {
-    if (!editingLeaveBalance) return;
-    try {
-      const res = await fetch('/api/leave/balance', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: editingLeaveBalance.id, totalDays: lbEditTotalDays, usedDays: lbEditUsedDays }) });
-      const data = await res.json();
-      if (res.ok) {
-        toast({ title: 'Leave Balance Updated!' }); setShowEditLeaveBalance(false); setEditingLeaveBalance(null);
-        const r2 = await fetch('/api/leave/balance?employeeId=all'); if (r2.ok) setAllLeaveBalances(await r2.json());
-      } else { toast({ title: 'Error', description: data.error, variant: 'destructive' }); }
-    } catch { toast({ title: 'Error', variant: 'destructive' }); }
-  };
-
-  const handleSaveMyDetails = async () => {
-    if (!user) return;
-    try {
-      const res = await fetch('/api/employees/update', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: user.id, ...myDetailsForm, salary: parseFloat(myDetailsForm.salary) || user.salary }) });
-      const data = await res.json();
-      if (res.ok) {
-        toast({ title: 'Details Saved!' });
-        setUser({ ...user, name: data.name || myDetailsForm.name, email: data.email || myDetailsForm.email, phone: data.phone || myDetailsForm.phone, position: data.position || myDetailsForm.position, salary: data.salary || parseFloat(myDetailsForm.salary) || user.salary });
-      } else { toast({ title: 'Error', description: data.error, variant: 'destructive' }); }
-    } catch { toast({ title: 'Error', variant: 'destructive' }); }
-  };
-
-  const handleSaveEmpDetail = async () => {
-    if (!editingEmpDetail) return;
-    try {
-      const res = await fetch('/api/employees/update', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(editingEmpDetail) });
-      const data = await res.json();
-      if (res.ok) {
-        toast({ title: 'Employee Details Updated!' }); setShowEditEmpDetail(false); setEditingEmpDetail(null);
-        const r2 = await fetch('/api/employees'); if (r2.ok) setEmployees(await r2.json());
       } else { toast({ title: 'Error', description: data.error, variant: 'destructive' }); }
     } catch { toast({ title: 'Error', variant: 'destructive' }); }
   };
@@ -668,7 +580,7 @@ export default function HomePage() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('attain-me-store');
+    localStorage.removeItem('attendance-khata-store');
     setUser(null); setCurrentView('check-in-out'); setCameraActive(false); setCameraLoading(false);
     setCapturedPhoto(null); setCurrentLocation(null); setCheckInFlow(false); setCheckOutFlow(false);
     setLoginEmpId(''); setLoginPassword(''); stopCamera();
@@ -823,7 +735,7 @@ export default function HomePage() {
         const { outcome } = await deferredPrompt.userChoice;
         (window as any).deferredInstallPrompt = null;
         if (outcome === 'accepted') {
-          toast({ title: 'App Installed!', description: 'Attain Me has been added to your home screen' });
+          toast({ title: 'App Installed!', description: 'AttendanceKhata has been added to your home screen' });
           return;
         }
       }
@@ -849,7 +761,7 @@ export default function HomePage() {
             <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
               <BookOpen className="w-5 h-5 text-white" />
             </div>
-            <span className="font-bold text-white text-lg">Attain Me</span>
+            <span className="font-bold text-white text-lg">AttendanceKhata</span>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => setDarkMode(!darkMode)} className={`w-9 h-9 rounded-full flex items-center justify-center ${darkMode ? 'bg-gray-800 text-yellow-400' : 'bg-white/20 text-white'} backdrop-blur-sm transition-all`}>
@@ -867,7 +779,7 @@ export default function HomePage() {
             <Fingerprint className="w-10 h-10 text-white" />
           </div>
           <h1 className={`text-4xl md:text-5xl font-extrabold tracking-tight ${darkMode ? 'text-blue-400' : 'text-white'}`}>
-            Attain<br />Me
+            Attendance<br />Khata
           </h1>
           <p className={`text-sm mt-3 max-w-md mx-auto ${darkMode ? 'text-gray-400' : 'text-blue-100'}`}>
             Smart Face Attendance System with Live Location Tracking, Leave Management, Payroll & Expense Claims
@@ -922,10 +834,10 @@ export default function HomePage() {
           <h2 className={`text-lg font-bold mb-4 ${darkMode ? 'text-white' : 'text-gray-900'}`}>Sign In to Your Account</h2>
           <div className="space-y-4 max-w-md mx-auto">
             <div className="space-y-2">
-              <Label className={`text-sm font-medium ${darkMode ? 'text-gray-300' : ''}`}>Employee ID / Email</Label>
+              <Label className={`text-sm font-medium ${darkMode ? 'text-gray-300' : ''}`}>Employee ID</Label>
               <div className="relative">
                 <KeyRound className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`} />
-                <Input id="empId" placeholder="Enter ID or Email" value={loginEmpId}
+                <Input id="empId" placeholder="e.g. ADMIN001 or EMP001" value={loginEmpId}
                   onChange={e => setLoginEmpId(e.target.value)}
                   className={`h-12 pl-10 rounded-xl text-base ${darkMode ? 'bg-gray-800 border-gray-700 text-white' : 'border-gray-200'}`}
                   onKeyDown={e => e.key === 'Enter' && handleLogin()} />
@@ -943,7 +855,16 @@ export default function HomePage() {
               Sign In
             </Button>
           </div>
-
+          <div className={`mt-5 p-3 rounded-xl max-w-md mx-auto ${darkMode ? 'bg-gray-800' : 'bg-gray-50'}`}>
+            <p className={`text-xs font-semibold mb-2 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Demo Credentials:</p>
+            <div className={`text-xs space-y-1 ${darkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+              <p><span className="font-medium">Super Admin:</span> SUADMIN01 / super123</p>
+              <p><span className="font-medium">Admin:</span> ADMIN001 / admin123</p>
+              <p><span className="font-medium">Manager:</span> MGR001 / mgr123</p>
+              <p><span className="font-medium">Sales:</span> EMP001 / emp123</p>
+              <p><span className="font-medium">Pre-Sales:</span> EMP003 / emp123</p>
+            </div>
+          </div>
         </div>
 
         {/* Install App Guide Modal */}
@@ -951,7 +872,7 @@ export default function HomePage() {
           <DialogContent className={`rounded-2xl max-w-sm ${darkMode ? 'bg-gray-900 border-gray-800' : ''}`}>
             <DialogHeader>
               <DialogTitle className={`flex items-center gap-2 ${darkMode ? 'text-white' : ''}`}>
-                <Smartphone className="w-5 h-5 text-blue-600" /> Install Attain Me
+                <Smartphone className="w-5 h-5 text-blue-600" /> Install AttendanceKhata
               </DialogTitle>
               <DialogDescription className={darkMode ? 'text-gray-400' : ''}>
                 Install this app on your phone for the best experience
@@ -1097,7 +1018,6 @@ export default function HomePage() {
     { id: 'payroll-admin', label: 'Payroll', icon: Wallet },
     { id: 'pay-slip-admin', label: 'Pay Slips', icon: Receipt },
     { id: 'leave-mgmt', label: 'Leave Management', icon: CalendarDays },
-    { id: 'emp-details', label: 'Employee Details', icon: BadgeCheck },
     { id: 'reimbursements-admin', label: 'Expense Claims', icon: IndianRupee },
   ];
 
@@ -1119,7 +1039,7 @@ export default function HomePage() {
     { id: 'my-leave', label: 'Leave Management', icon: CalendarDays },
     { id: 'pay-slip', label: 'Pay Slips', icon: Receipt },
     { id: 'reimbursements', label: 'Expense Claims', icon: IndianRupee },
-    { id: 'my-details', label: 'My Details', icon: Users },
+    { id: 'profile', label: 'My Profile', icon: Users },
   ];
 
   // Bottom tabs (mobile)
@@ -1128,7 +1048,6 @@ export default function HomePage() {
     { id: 'pending-approval', label: 'Approve', icon: CheckCircle2 },
     { id: 'employees', label: 'Staff', icon: Users },
     { id: 'leave-mgmt', label: 'Leave', icon: CalendarDays },
-    { id: 'emp-details', label: 'Details', icon: BadgeCheck },
   ];
 
   const adminTabs = superAdminTabs;
@@ -1146,7 +1065,7 @@ export default function HomePage() {
     { id: 'my-leave', label: 'Leave', icon: CalendarDays },
     { id: 'pay-slip', label: 'Payslip', icon: Receipt },
     { id: 'reimbursements', label: 'Expenses', icon: IndianRupee },
-    { id: 'my-details', label: 'Details', icon: Users },
+    { id: 'profile', label: 'Profile', icon: Users },
   ];
 
   // Select sidebar and tabs based on role
@@ -1163,7 +1082,7 @@ export default function HomePage() {
           <BookOpen className="w-5 h-5 text-white" />
         </div>
         <div>
-          <h1 className="font-bold text-base leading-tight">Attain Me</h1>
+          <h1 className="font-bold text-base leading-tight">AttendanceKhata</h1>
           <p className={`text-[10px] uppercase tracking-wider ${dm ? 'text-gray-500' : 'text-gray-400'}`}>{panelLabel}</p>
         </div>
       </div>
@@ -1172,7 +1091,7 @@ export default function HomePage() {
           const Icon = item.icon;
           const isActive = currentView === item.id;
           return (
-            <button key={item.id} onClick={() => navigateTo(item.id)}
+            <button key={item.id} onClick={() => setCurrentView(item.id)}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
                 isActive
                   ? 'bg-blue-600 text-white shadow-md'
@@ -1614,7 +1533,7 @@ export default function HomePage() {
                   <div><Label className="text-xs">Description</Label><Input placeholder="Description" value={newLeaveType.description} onChange={e => setNewLeaveType({ ...newLeaveType, description: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
                   <div><Label className="text-xs">Default Days/Year *</Label><Input type="number" placeholder="12" value={newLeaveType.defaultDays} onChange={e => setNewLeaveType({ ...newLeaveType, defaultDays: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
                 </div>
-                <DialogFooter><Button onClick={handleAddLeaveType} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl">Add Leave Type</Button></DialogFooter>
+                <DialogFooter><Button onClick={handleAddLeaveType} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl">Create</Button></DialogFooter>
               </DialogContent>
             </Dialog>
           </div>
@@ -1625,10 +1544,7 @@ export default function HomePage() {
               {leaveTypes.map(lt => (
                 <div key={lt.id} className={`flex items-center justify-between p-2 rounded-xl ${dm ? 'bg-gray-800' : 'bg-gray-50'}`}>
                   <div><p className={`text-sm font-medium ${dm ? 'text-white' : ''}`}>{lt.name}</p><p className={`text-xs ${dm ? 'text-gray-500' : 'text-gray-400'}`}>{lt.description || 'No description'}</p></div>
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-blue-100 text-blue-700 text-xs">{lt.defaultDays} days/yr</Badge>
-                    {isAdmin && <Button onClick={() => { setEditingLeaveType({ ...lt }); setShowEditLeaveType(true); }} variant="ghost" size="sm" className={`h-7 w-7 p-0 ${dm ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-900'}`}><BadgeCheck className="w-3.5 h-3.5" /></Button>}
-                  </div>
+                  <Badge className="bg-blue-100 text-blue-700 text-xs">{lt.defaultDays} days/yr</Badge>
                 </div>
               ))}
             </CardContent>
@@ -1654,44 +1570,6 @@ export default function HomePage() {
             </CardContent>
           </Card>
 
-          {/* All Leave Records - with filters */}
-          <Card className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className={`text-sm font-semibold ${dm ? 'text-white' : ''}`}>All Leave Records</CardTitle>
-              </div>
-              <div className="flex gap-2 mt-2">
-                <Select value={leaveFilter} onValueChange={setLeaveFilter}>
-                  <SelectTrigger className={`h-8 text-xs rounded-lg w-28 ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}><SelectValue placeholder="Status" /></SelectTrigger>
-                  <SelectContent><SelectItem value="all">All Status</SelectItem><SelectItem value="pending">Pending</SelectItem><SelectItem value="approved">Approved</SelectItem><SelectItem value="rejected">Rejected</SelectItem></SelectContent>
-                </Select>
-                <Select value={leaveEmpFilter} onValueChange={setLeaveEmpFilter}>
-                  <SelectTrigger className={`h-8 text-xs rounded-lg w-32 ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}><SelectValue placeholder="Employee" /></SelectTrigger>
-                  <SelectContent><SelectItem value="all">All Employees</SelectItem>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-2 max-h-80 overflow-y-auto">
-              {allLeaveApplications
-                .filter(la => (leaveFilter === 'all' || la.status === leaveFilter) && (leaveEmpFilter === 'all' || la.employeeId === leaveEmpFilter))
-                .length === 0 ? <p className={`text-sm text-center py-4 ${dm ? 'text-gray-500' : 'text-gray-400'}`}>No records found</p> :
-                allLeaveApplications
-                .filter(la => (leaveFilter === 'all' || la.status === leaveFilter) && (leaveEmpFilter === 'all' || la.employeeId === leaveEmpFilter))
-                .map(la => (
-                  <div key={la.id} className={`p-2.5 rounded-xl ${dm ? 'bg-gray-800' : 'bg-gray-50'}`}>
-                    <div className="flex items-start justify-between">
-                      <div><p className={`text-xs font-semibold ${dm ? 'text-white' : ''}`}>{la.employee?.name}</p><p className={`text-[10px] ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{la.leaveType?.name} · {formatDate(la.startDate)} - {formatDate(la.endDate)}</p></div>
-                      <div className="flex items-center gap-1">
-                        <Badge className={`${la.status === 'approved' ? 'bg-blue-100 text-blue-700' : la.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'} text-[9px]`}>{la.status}</Badge>
-                        <Button onClick={() => { setEditingLeave({ ...la }); setShowEditLeave(true); }} variant="ghost" size="sm" className={`h-6 w-6 p-0 ${dm ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-900'}`}><BadgeCheck className="w-3 h-3" /></Button>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              }
-            </CardContent>
-          </Card>
-
           <Card className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
             <CardHeader className="pb-2"><CardTitle className={`text-sm font-semibold ${dm ? 'text-white' : ''}`}>Leave Balances</CardTitle></CardHeader>
             <CardContent className="space-y-3">
@@ -1703,8 +1581,7 @@ export default function HomePage() {
                     <p className={`text-sm font-semibold mb-2 ${dm ? 'text-white' : ''}`}>{balances[0]?.employee?.name || empId}</p>
                     <div className="grid grid-cols-3 gap-2">
                       {balances.map(b => (
-                        <div key={b.id} className={`text-center p-1.5 rounded-lg relative ${dm ? 'bg-gray-700' : 'bg-white'}`}>
-                          {isAdmin && <button onClick={() => { setEditingLeaveBalance(b); setLbEditTotalDays(b.totalDays); setLbEditUsedDays(b.usedDays); setShowEditLeaveBalance(true); }} className={`absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center ${dm ? 'bg-blue-600 text-white' : 'bg-blue-500 text-white'} text-[8px]`}><BadgeCheck className="w-2.5 h-2.5" /></button>}
+                        <div key={b.id} className={`text-center p-1.5 rounded-lg ${dm ? 'bg-gray-700' : 'bg-white'}`}>
                           <p className={`text-[10px] ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{b.leaveType?.name}</p>
                           <p className={`text-xs font-bold ${dm ? 'text-white' : ''}`}>{b.totalDays - b.usedDays}/{b.totalDays}</p>
                           <p className={`text-[9px] ${dm ? 'text-gray-500' : 'text-gray-400'}`}>{b.usedDays} used</p>
@@ -1720,50 +1597,6 @@ export default function HomePage() {
           <Button onClick={() => setShowRegularise(true)} className={`w-full h-11 rounded-xl font-semibold ${dm ? 'bg-gray-800 text-white hover:bg-gray-700' : 'bg-white text-gray-900 border border-gray-200'}`}>
             <FileText className="w-4 h-4 mr-2" /> Regularise Attendance
           </Button>
-        </div>
-      )}
-
-      {/* ===== ADMIN: EMPLOYEE DETAILS ===== */}
-      {currentView === 'emp-details' && isAdmin && (
-        <div className="space-y-4">
-          <h2 className={`text-xl font-bold ${dm ? 'text-white' : ''}`}>Employee Details</h2>
-          {employees.filter(e => e.role === 'employee').length === 0 ? (
-            <Card className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
-              <CardContent className="py-12 text-center"><BadgeCheck className={`w-12 h-12 mx-auto mb-3 ${dm ? 'text-gray-600' : 'text-gray-300'}`} /><p className={dm ? 'text-gray-400' : 'text-gray-500'}>No employees found</p></CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {employees.filter(e => e.role === 'employee').map(emp => (
-                <Card key={emp.id} className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Avatar className="w-8 h-8"><AvatarFallback className="bg-blue-100 text-blue-700 text-xs font-bold">{emp.name?.split(' ').map((n: string) => n[0]).join('')}</AvatarFallback></Avatar>
-                          <div>
-                            <p className={`font-semibold text-sm ${dm ? 'text-white' : ''}`}>{emp.name}</p>
-                            <p className={`text-xs ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{emp.empId} · {emp.department}</p>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                          <div><span className={dm ? 'text-gray-500' : 'text-gray-400'}>Position:</span> <span className={dm ? 'text-gray-300' : 'text-gray-700'}>{emp.position}</span></div>
-                          <div><span className={dm ? 'text-gray-500' : 'text-gray-400'}>Phone:</span> <span className={dm ? 'text-gray-300' : 'text-gray-700'}>{emp.phone || '—'}</span></div>
-                          <div><span className={dm ? 'text-gray-500' : 'text-gray-400'}>Join Date:</span> <span className={dm ? 'text-gray-300' : 'text-gray-700'}>{emp.joinDate ? formatDate(emp.joinDate) : '—'}</span></div>
-                          <div><span className={dm ? 'text-gray-500' : 'text-gray-400'}>PAN:</span> <span className={dm ? 'text-gray-300' : 'text-gray-700'}>{emp.panNumber || '—'}</span></div>
-                          <div><span className={dm ? 'text-gray-500' : 'text-gray-400'}>Salary:</span> <span className={dm ? 'text-gray-300' : 'text-gray-700'}>{formatCurrency(emp.salary)}</span></div>
-                          <div><span className={dm ? 'text-gray-500' : 'text-gray-400'}>Bank:</span> <span className={dm ? 'text-gray-300' : 'text-gray-700'}>{emp.bankName || '—'}</span></div>
-                          <div><span className={dm ? 'text-gray-500' : 'text-gray-400'}>Account:</span> <span className={dm ? 'text-gray-300' : 'text-gray-700'}>{emp.bankAccount || '—'}</span></div>
-                          <div><span className={dm ? 'text-gray-500' : 'text-gray-400'}>IFSC:</span> <span className={dm ? 'text-gray-300' : 'text-gray-700'}>{emp.bankIfsc || '—'}</span></div>
-                          <div className="col-span-2"><span className={dm ? 'text-gray-500' : 'text-gray-400'}>Email:</span> <span className={dm ? 'text-gray-300' : 'text-gray-700'}>{emp.email}</span></div>
-                        </div>
-                      </div>
-                      <Button onClick={() => { setEditingEmpDetail({ ...emp }); setShowEditEmpDetail(true); }} variant="ghost" size="sm" className={`h-8 w-8 p-0 ${dm ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-gray-900'}`}><BadgeCheck className="w-4 h-4" /></Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
         </div>
       )}
 
@@ -2043,7 +1876,7 @@ export default function HomePage() {
                     </div>
                     {pr.status === 'paid' && (
                       <Button onClick={() => {
-                        const html = `<!DOCTYPE html><html><head><title>Payslip - ${MONTH_FULL[pr.month - 1]} ${pr.year}</title><style>body{font-family:Arial,sans-serif;max-width:600px;margin:40px auto;padding:20px;color:#333}.header{text-align:center;border-bottom:3px solid #2563eb;padding-bottom:20px;margin-bottom:20px}.header h1{color:#2563eb;margin:0;font-size:24px}.header p{color:#666;margin:4px 0 0}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:20px 0}.info-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px}.info-box .label{font-size:10px;color:#94a3b8;text-transform:uppercase}.info-box .value{font-size:16px;font-weight:bold;color:#1e293b;margin-top:4px}.total{background:#2563eb;color:white;border-radius:8px;padding:16px;text-align:center;margin-top:20px}.total .amount{font-size:28px;font-weight:bold}.total .label{font-size:12px;opacity:0.8}.negative{color:#dc2626!important}.positive{color:#2563eb!important}.footer{text-align:center;margin-top:30px;color:#94a3b8;font-size:11px}</style></head><body><div class="header"><h1>Attain Me</h1><p>Payslip for ${MONTH_FULL[pr.month - 1]} ${pr.year}</p></div><div class="info-grid"><div class="info-box"><div class="label">Employee</div><div class="value">${user?.name || ''}</div></div><div class="info-box"><div class="label">Employee ID</div><div class="value">${user?.empId || ''}</div></div><div class="info-box"><div class="label">Department</div><div class="value">${user?.department || ''}</div></div><div class="info-box"><div class="label">Position</div><div class="value">${user?.position || ''}</div></div><div class="info-box"><div class="label">Basic Salary</div><div class="value">₹${pr.basicSalary.toLocaleString('en-IN')}</div></div><div class="info-box"><div class="label">Present Days</div><div class="value">${pr.presentDays}/${pr.workingDays}</div></div><div class="info-box"><div class="label">Overtime</div><div class="value positive">+₹${pr.overtime.toLocaleString('en-IN')}</div></div><div class="info-box"><div class="label">Deductions</div><div class="value negative">-₹${pr.deductions.toLocaleString('en-IN')}</div></div><div class="info-box"><div class="label">Bonus</div><div class="value positive">+₹${pr.bonus.toLocaleString('en-IN')}</div></div><div class="info-box"><div class="label">Status</div><div class="value">${pr.status.toUpperCase()}</div></div></div><div class="total"><div class="label">NET SALARY</div><div class="amount">₹${pr.netSalary.toLocaleString('en-IN')}</div></div><div class="footer">Generated on ${new Date().toLocaleDateString('en-IN')} · Attain Me Payroll System</div></body></html>`;
+                        const html = `<!DOCTYPE html><html><head><title>Payslip - ${MONTH_FULL[pr.month - 1]} ${pr.year}</title><style>body{font-family:Arial,sans-serif;max-width:600px;margin:40px auto;padding:20px;color:#333}.header{text-align:center;border-bottom:3px solid #2563eb;padding-bottom:20px;margin-bottom:20px}.header h1{color:#2563eb;margin:0;font-size:24px}.header p{color:#666;margin:4px 0 0}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:20px 0}.info-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px}.info-box .label{font-size:10px;color:#94a3b8;text-transform:uppercase}.info-box .value{font-size:16px;font-weight:bold;color:#1e293b;margin-top:4px}.total{background:#2563eb;color:white;border-radius:8px;padding:16px;text-align:center;margin-top:20px}.total .amount{font-size:28px;font-weight:bold}.total .label{font-size:12px;opacity:0.8}.negative{color:#dc2626!important}.positive{color:#2563eb!important}.footer{text-align:center;margin-top:30px;color:#94a3b8;font-size:11px}</style></head><body><div class="header"><h1>AttendanceKhata</h1><p>Payslip for ${MONTH_FULL[pr.month - 1]} ${pr.year}</p></div><div class="info-grid"><div class="info-box"><div class="label">Employee</div><div class="value">${user?.name || ''}</div></div><div class="info-box"><div class="label">Employee ID</div><div class="value">${user?.empId || ''}</div></div><div class="info-box"><div class="label">Department</div><div class="value">${user?.department || ''}</div></div><div class="info-box"><div class="label">Position</div><div class="value">${user?.position || ''}</div></div><div class="info-box"><div class="label">Basic Salary</div><div class="value">₹${pr.basicSalary.toLocaleString('en-IN')}</div></div><div class="info-box"><div class="label">Present Days</div><div class="value">${pr.presentDays}/${pr.workingDays}</div></div><div class="info-box"><div class="label">Overtime</div><div class="value positive">+₹${pr.overtime.toLocaleString('en-IN')}</div></div><div class="info-box"><div class="label">Deductions</div><div class="value negative">-₹${pr.deductions.toLocaleString('en-IN')}</div></div><div class="info-box"><div class="label">Bonus</div><div class="value positive">+₹${pr.bonus.toLocaleString('en-IN')}</div></div><div class="info-box"><div class="label">Status</div><div class="value">${pr.status.toUpperCase()}</div></div></div><div class="total"><div class="label">NET SALARY</div><div class="amount">₹${pr.netSalary.toLocaleString('en-IN')}</div></div><div class="footer">Generated on ${new Date().toLocaleDateString('en-IN')} · AttendanceKhata Payroll System</div></body></html>`;
                         const blob = new Blob([html], { type: 'text/html' });
                         const url = URL.createObjectURL(blob);
                         const a = document.createElement('a');
@@ -2188,34 +2021,26 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ===== EMPLOYEE: MY DETAILS ===== */}
-      {currentView === 'my-details' && isEmployee && (
+      {/* ===== EMPLOYEE: PROFILE ===== */}
+      {currentView === 'profile' && isEmployee && (
         <div className="space-y-4">
           <Card className={`rounded-2xl border-0 shadow-sm overflow-hidden ${dm ? 'bg-gray-900' : ''}`}>
             <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 text-center">
               <Avatar className="w-20 h-20 mx-auto border-4 border-white/30"><AvatarFallback className="bg-white/20 text-white text-2xl font-bold">{user.name.split(' ').map(n => n[0]).join('')}</AvatarFallback></Avatar>
               <h3 className="text-xl font-bold text-white mt-3">{user.name}</h3>
               <p className="text-blue-100 text-sm">{user.empId} · {user.department}</p>
-              <Badge className="mt-2 bg-white/20 text-white text-xs">{roleLabel}</Badge>
             </div>
-          </Card>
-
-          <Card className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
-            <CardHeader className="pb-2"><CardTitle className={`text-sm font-semibold ${dm ? 'text-white' : ''}`}>Personal & Bank Details</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div><Label className="text-xs">Full Name</Label><Input value={myDetailsForm.name} onChange={e => setMyDetailsForm({ ...myDetailsForm, name: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-                <div><Label className="text-xs">Date of Joining</Label><Input type="date" value={myDetailsForm.joinDate} onChange={e => setMyDetailsForm({ ...myDetailsForm, joinDate: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-                <div><Label className="text-xs">Mobile Number</Label><Input value={myDetailsForm.phone} onChange={e => setMyDetailsForm({ ...myDetailsForm, phone: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-                <div><Label className="text-xs">PAN Number</Label><Input value={myDetailsForm.panNumber} onChange={e => setMyDetailsForm({ ...myDetailsForm, panNumber: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-                <div><Label className="text-xs">Designation</Label><Input value={myDetailsForm.position} onChange={e => setMyDetailsForm({ ...myDetailsForm, position: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-                <div><Label className="text-xs">Salary (₹)</Label><Input type="number" value={myDetailsForm.salary} onChange={e => setMyDetailsForm({ ...myDetailsForm, salary: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-                <div><Label className="text-xs">Bank Account</Label><Input value={myDetailsForm.bankAccount} onChange={e => setMyDetailsForm({ ...myDetailsForm, bankAccount: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-                <div><Label className="text-xs">Bank IFSC</Label><Input value={myDetailsForm.bankIfsc} onChange={e => setMyDetailsForm({ ...myDetailsForm, bankIfsc: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-                <div><Label className="text-xs">Bank Name</Label><Input value={myDetailsForm.bankName} onChange={e => setMyDetailsForm({ ...myDetailsForm, bankName: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-                <div><Label className="text-xs">Email</Label><Input type="email" value={myDetailsForm.email} onChange={e => setMyDetailsForm({ ...myDetailsForm, email: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-              </div>
-              <Button onClick={handleSaveMyDetails} className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-xl h-11 font-semibold mt-2">Save Details</Button>
+            <CardContent className={`p-4 ${dm ? 'bg-gray-900' : ''}`}>
+              {[
+                ['Position', user.position],
+                ['Email', user.email],
+                ['Salary', `₹${user.salary.toLocaleString('en-IN')}`],
+              ].map(([k, v]) => (
+                <div key={k} className={`flex items-center justify-between py-2 border-b ${dm ? 'border-gray-800' : 'border-gray-100'}`}>
+                  <span className={`text-sm ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{k}</span>
+                  <span className={`text-sm font-medium ${dm ? 'text-white' : ''}`}>{v}</span>
+                </div>
+              ))}
             </CardContent>
           </Card>
           <Button onClick={handleLogout} variant="outline" className="w-full h-12 rounded-xl text-red-600 border-red-200 hover:bg-red-50 font-semibold"><LogOut className="w-4 h-4 mr-2" /> Logout</Button>
@@ -2239,7 +2064,7 @@ export default function HomePage() {
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center"><BookOpen className="w-5 h-5 text-white" /></div>
             <div>
-              <h1 className="font-bold text-lg leading-tight">Attain Me</h1>
+              <h1 className="font-bold text-lg leading-tight">AttendanceKhata</h1>
               <p className={`text-[10px] uppercase tracking-wider ${dm ? 'text-gray-400' : 'text-blue-100'}`}>{roleLabel}</p>
             </div>
           </div>
@@ -2310,76 +2135,6 @@ export default function HomePage() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Leave Type Dialog */}
-      <Dialog open={showEditLeaveType} onOpenChange={setShowEditLeaveType}>
-        <DialogContent className={`max-w-lg rounded-2xl ${dm ? 'bg-gray-900 border-gray-800' : ''}`}>
-          <DialogHeader><DialogTitle className={dm ? 'text-white' : ''}>Edit Leave Type</DialogTitle></DialogHeader>
-          {editingLeaveType && (
-            <div className="grid gap-3 py-3">
-              <div><Label className="text-xs">Name</Label><Input value={editingLeaveType.name} onChange={e => setEditingLeaveType({ ...editingLeaveType, name: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-              <div><Label className="text-xs">Description</Label><Input value={editingLeaveType.description || ''} onChange={e => setEditingLeaveType({ ...editingLeaveType, description: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-              <div><Label className="text-xs">Default Days/Year</Label><Input type="number" value={editingLeaveType.defaultDays} onChange={e => setEditingLeaveType({ ...editingLeaveType, defaultDays: parseInt(e.target.value) || 0 })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-            </div>
-          )}
-          <DialogFooter><Button variant="outline" onClick={() => setShowEditLeaveType(false)} className="rounded-xl">Cancel</Button><Button onClick={handleEditLeaveType} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl">Save Changes</Button></DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Leave Balance Dialog */}
-      <Dialog open={showEditLeaveBalance} onOpenChange={setShowEditLeaveBalance}>
-        <DialogContent className={`max-w-lg rounded-2xl ${dm ? 'bg-gray-900 border-gray-800' : ''}`}>
-          <DialogHeader><DialogTitle className={dm ? 'text-white' : ''}>Edit Leave Balance</DialogTitle></DialogHeader>
-          {editingLeaveBalance && (
-            <div className="grid gap-3 py-3">
-              <p className={`text-sm font-medium ${dm ? 'text-gray-300' : 'text-gray-600'}`}>{editingLeaveBalance.employee?.name} · {editingLeaveBalance.leaveType?.name}</p>
-              <div><Label className="text-xs">Total Days</Label><Input type="number" value={lbEditTotalDays} onChange={e => setLbEditTotalDays(parseInt(e.target.value) || 0)} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-              <div><Label className="text-xs">Used Days</Label><Input type="number" value={lbEditUsedDays} onChange={e => setLbEditUsedDays(parseInt(e.target.value) || 0)} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-              <div className={`p-3 rounded-xl ${dm ? 'bg-gray-800' : 'bg-blue-50'} text-center`}>
-                <p className="text-xs text-gray-500 uppercase">Remaining</p>
-                <p className={`text-xl font-bold ${dm ? 'text-white' : 'text-blue-700'}`}>{lbEditTotalDays - lbEditUsedDays} days</p>
-              </div>
-            </div>
-          )}
-          <DialogFooter><Button variant="outline" onClick={() => setShowEditLeaveBalance(false)} className="rounded-xl">Cancel</Button><Button onClick={handleEditLeaveBalance} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl">Save Changes</Button></DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Employee Detail Dialog */}
-      <Dialog open={showEditEmpDetail} onOpenChange={setShowEditEmpDetail}>
-        <DialogContent className={`max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl ${dm ? 'bg-gray-900 border-gray-800' : ''}`}>
-          <DialogHeader><DialogTitle className={dm ? 'text-white' : ''}>Edit Employee Details</DialogTitle></DialogHeader>
-          {editingEmpDetail && (
-            <div className="grid gap-3 py-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label className="text-xs">Full Name</Label><Input value={editingEmpDetail.name} onChange={e => setEditingEmpDetail({ ...editingEmpDetail, name: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-                <div><Label className="text-xs">Employee ID</Label><Input value={editingEmpDetail.empId} disabled className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-gray-500' : ''}`} /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label className="text-xs">Email</Label><Input value={editingEmpDetail.email} onChange={e => setEditingEmpDetail({ ...editingEmpDetail, email: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-                <div><Label className="text-xs">Phone</Label><Input value={editingEmpDetail.phone || ''} onChange={e => setEditingEmpDetail({ ...editingEmpDetail, phone: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label className="text-xs">Department</Label><Input value={editingEmpDetail.department} onChange={e => setEditingEmpDetail({ ...editingEmpDetail, department: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-                <div><Label className="text-xs">Position</Label><Input value={editingEmpDetail.position} onChange={e => setEditingEmpDetail({ ...editingEmpDetail, position: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label className="text-xs">Salary (₹)</Label><Input type="number" value={editingEmpDetail.salary} onChange={e => setEditingEmpDetail({ ...editingEmpDetail, salary: parseFloat(e.target.value) || 0 })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-                <div><Label className="text-xs">Join Date</Label><Input type="date" value={editingEmpDetail.joinDate ? (typeof editingEmpDetail.joinDate === 'string' ? editingEmpDetail.joinDate.split('T')[0] : '') : ''} onChange={e => setEditingEmpDetail({ ...editingEmpDetail, joinDate: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label className="text-xs">Bank Account</Label><Input value={editingEmpDetail.bankAccount || ''} onChange={e => setEditingEmpDetail({ ...editingEmpDetail, bankAccount: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-                <div><Label className="text-xs">Bank IFSC</Label><Input value={editingEmpDetail.bankIfsc || ''} onChange={e => setEditingEmpDetail({ ...editingEmpDetail, bankIfsc: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label className="text-xs">Bank Name</Label><Input value={editingEmpDetail.bankName || ''} onChange={e => setEditingEmpDetail({ ...editingEmpDetail, bankName: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-                <div><Label className="text-xs">PAN Number</Label><Input value={editingEmpDetail.panNumber || ''} onChange={e => setEditingEmpDetail({ ...editingEmpDetail, panNumber: e.target.value })} className={`h-10 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} /></div>
-              </div>
-            </div>
-          )}
-          <DialogFooter><Button variant="outline" onClick={() => setShowEditEmpDetail(false)} className="rounded-xl">Cancel</Button><Button onClick={handleSaveEmpDetail} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl">Save Changes</Button></DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Regularise Dialog */}
       <Dialog open={showRegularise} onOpenChange={setShowRegularise}>
         <DialogContent className={`rounded-2xl ${dm ? 'bg-gray-900 border-gray-800' : ''}`}>
@@ -2404,7 +2159,7 @@ export default function HomePage() {
             const Icon = tab.icon;
             const isActive = currentView === tab.id;
             return (
-              <button key={tab.id} onClick={() => navigateTo(tab.id)} className={`flex flex-col items-center justify-center w-full h-full transition-all ${isActive ? 'text-blue-600' : dm ? 'text-gray-500' : 'text-gray-400'}`}>
+              <button key={tab.id} onClick={() => setCurrentView(tab.id)} className={`flex flex-col items-center justify-center w-full h-full transition-all ${isActive ? 'text-blue-600' : dm ? 'text-gray-500' : 'text-gray-400'}`}>
                 <div className={`p-1.5 rounded-xl transition-all ${isActive ? 'bg-blue-50' : ''} ${dm && isActive ? 'bg-blue-900/30' : ''}`}>
                   <Icon className="w-5 h-5" />
                 </div>

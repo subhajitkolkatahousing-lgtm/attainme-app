@@ -3,16 +3,36 @@ import { NextResponse } from 'next/server';
 
 export async function POST() {
   try {
-    // Update existing admin to super_admin if no super_admin exists
-    const superAdminExists = await db.employee.findFirst({ where: { role: 'super_admin' } });
-    if (!superAdminExists) {
-      const firstAdmin = await db.employee.findFirst({ where: { role: 'admin' } });
-      if (firstAdmin) {
-        await db.employee.update({ where: { id: firstAdmin.id }, data: { role: 'super_admin' } });
+    // Update Super Admin credentials
+    const sa = await db.employee.findUnique({ where: { empId: 'SUADMIN01' } });
+    if (sa) {
+      await db.employee.update({
+        where: { id: sa.id },
+        data: {
+          email: 'matriksaha123@gmail.com',
+          password: '#mat3084',
+          department: 'Back Office',
+          name: 'Super Admin',
+        },
+      });
+    }
+
+    // Delete all dummy employees (EMP001-EMP005, ADMIN001, MGR001)
+    const dummyEmpIds = ['EMP001', 'EMP002', 'EMP003', 'EMP004', 'EMP005', 'ADMIN001', 'MGR001'];
+    for (const empId of dummyEmpIds) {
+      const emp = await db.employee.findUnique({ where: { empId } });
+      if (emp) {
+        // Delete related records first
+        await db.leaveBalance.deleteMany({ where: { employeeId: emp.id } });
+        await db.leaveApplication.deleteMany({ where: { employeeId: emp.id } });
+        await db.attendance.deleteMany({ where: { employeeId: emp.id } });
+        await db.payroll.deleteMany({ where: { employeeId: emp.id } });
+        await db.reimbursement.deleteMany({ where: { employeeId: emp.id } });
+        await db.employee.delete({ where: { id: emp.id } });
       }
     }
 
-    // Set subRole for existing employees without one
+    // Set subRole for remaining employees without one
     const employees = await db.employee.findMany({ where: { role: 'employee', subRole: null } });
     for (const emp of employees) {
       await db.employee.update({
@@ -21,49 +41,20 @@ export async function POST() {
       });
     }
 
-    // Create Super Admin if doesn't exist
-    const sa = await db.employee.findUnique({ where: { empId: 'SUADMIN01' } });
-    if (!sa) {
-      await db.employee.create({
-        data: {
-          empId: 'SUADMIN01', name: 'Super Admin', email: 'superadmin@attendancekhata.com',
-          phone: '+91-9876543200', department: 'Administration', position: 'Super Administrator',
-          salary: 100000, role: 'super_admin', password: 'super123',
-        },
+    // Ensure default leave types exist
+    const existingTypes = await db.leaveType.findMany();
+    if (existingTypes.length === 0) {
+      await db.leaveType.createMany({
+        data: [
+          { name: 'Casual Leave', description: 'Casual leave for personal work', defaultDays: 12 },
+          { name: 'Sick Leave', description: 'Leave for medical reasons', defaultDays: 10 },
+          { name: 'Earned Leave', description: 'Earned/privileged leave', defaultDays: 15 },
+        ],
       });
-    }
-
-    // Create Manager if doesn't exist
-    const mgr = await db.employee.findUnique({ where: { empId: 'MGR001' } });
-    if (!mgr) {
-      await db.employee.create({
-        data: {
-          empId: 'MGR001', name: 'Ravi Verma', email: 'ravi@company.com',
-          phone: '+91-9876543201', department: 'Operations', position: 'Operations Manager',
-          salary: 65000, role: 'manager', password: 'mgr123',
-        },
-      });
-    }
-
-    // Set presales subRole for specific employees
-    const emp003 = await db.employee.findUnique({ where: { empId: 'EMP003' } });
-    if (emp003 && emp003.subRole !== 'presales') {
-      await db.employee.update({ where: { id: emp003.id }, data: { subRole: 'presales', department: 'Pre-Sales', position: 'Pre-Sales Consultant' } });
-    }
-    const emp004 = await db.employee.findUnique({ where: { empId: 'EMP004' } });
-    if (emp004 && emp004.subRole !== 'presales') {
-      await db.employee.update({ where: { id: emp004.id }, data: { subRole: 'presales', department: 'Pre-Sales', position: 'Pre-Sales Analyst' } });
-    }
-
-    // Set sales subRole for remaining employees
-    const salesEmps = await db.employee.findMany({ where: { role: 'employee', subRole: null } });
-    for (const emp of salesEmps) {
-      await db.employee.update({ where: { id: emp.id }, data: { subRole: 'sales' } });
     }
 
     return NextResponse.json({
-      message: 'Data migration completed',
-      updated: employees.length,
+      message: 'Data cleanup completed - dummy employees removed, super admin updated',
     });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });

@@ -27,3 +27,28 @@ Stage Summary:
 - New features: Pay Slip, Travel Allowance, Mobile Recharge claims
 - Blue theme with dark mode persistence
 - Responsive layout (desktop sidebar + mobile bottom nav)
+---
+Task ID: 2
+Agent: Main Agent
+Task: Apply 5 user requirements - Leave Types edit, remove dummy IDs, update super admin credentials, remove demo credentials from login, add custom domain
+
+Work Log:
+- Made Leave Types editable for Admin/Super Admin with PUT API and edit dialog
+- Removed all dummy/demo IDs (EMP001-005, ADMIN001, MGR001) from seed data and production DB
+- Updated Super Admin credentials: email=matriksaha123@gmail.com, password=#mat3084
+- Updated login API to support both empId and email-based login
+- Removed Demo Credentials section from login page
+- Renamed app from AttendanceKhata to "Attain Me"
+- Updated login label to "Employee ID / Email"
+- Added Employee Details section for Admin/Super Admin with view/edit of all employee personal & bank details
+- Added My Details section for employees with editable form
+- Enhanced Leave Management with all leave records, filters, and edit capabilities
+- Made Leave Balance edit button always visible (not hover-only)
+- Added custom domain attainme.com to Vercel project
+- Built and deployed successfully
+
+Stage Summary:
+- All 5 requirements implemented and deployed
+- Custom domain attainme.com added (DNS configuration needed by user)
+- Super Admin login: SUADMIN01 or matriksaha123@gmail.com / #mat3084
+- Deployed to: https://my-project-alpha-bice.vercel.app
