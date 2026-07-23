@@ -4,27 +4,8 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function GET() {
   try {
     const employees = await db.employee.findMany({
-      where: { active: true },
+      where: { active: true, empId: { notIn: ['EMP001', 'EMP002', 'EMP003', 'EMP004', 'EMP005', 'ADMIN001', 'MGR001'] } },
       orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        empId: true,
-        name: true,
-        email: true,
-        phone: true,
-        department: true,
-        position: true,
-        salary: true,
-        role: true,
-        subRole: true,
-        joinDate: true,
-        photoUrl: true,
-        active: true,
-        bankAccount: true,
-        bankIfsc: true,
-        bankName: true,
-        panNumber: true,
-      },
     });
     return NextResponse.json(employees);
   } catch (error) {

@@ -1,0 +1,8 @@
+android-sdk/
+jdk/
+twa-project/
+scripts/
+tool-results/
+db/
+examples/
+*.db

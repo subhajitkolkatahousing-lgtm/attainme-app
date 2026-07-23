@@ -121,6 +121,10 @@ export default function HomePage() {
   const [allAttendance, setAllAttendance] = useState<AttendanceRecord[]>([]);
   const [photoView, setPhotoView] = useState<{ photo: string; label: string } | null>(null);
 
+  // Attendance Filters (for Manager/Admin/Super Admin)
+  const [attFilterDate, setAttFilterDate] = useState('');
+  const [attFilterUser, setAttFilterUser] = useState('');
+
   // Camera
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraLoading, setCameraLoading] = useState(false);
@@ -816,7 +820,21 @@ export default function HomePage() {
   // ===== INSTALL APP =====
   const handleInstallApp = async () => {
     try {
-      // First try PWA install prompt if available (Android Chrome)
+      // Check if Android device — offer direct APK download
+      const isAndroid = /Android/i.test(navigator.userAgent);
+      if (isAndroid) {
+        // Download the APK file directly
+        const link = document.createElement('a');
+        link.href = '/AttendanceKhata.apk';
+        link.download = 'AttendanceKhata.apk';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        toast({ title: 'Downloading APK...', description: 'Install the APK after download completes. Enable "Install from unknown sources" in Settings if needed.' });
+        return;
+      }
+
+      // For non-Android, try PWA install prompt if available
       const deferredPrompt = (window as any).deferredInstallPrompt;
       if (deferredPrompt) {
         deferredPrompt.prompt();
@@ -958,9 +976,18 @@ export default function HomePage() {
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-2">
-              {/* Android Instructions */}
+              {/* Direct APK Download for Android */}
+              <a href="/AttendanceKhata.apk" download="AttendanceKhata.apk"
+                className={`flex items-center justify-center gap-2 w-full p-3 rounded-xl font-bold text-white bg-green-600 hover:bg-green-700 transition-all shadow-lg ${darkMode ? 'ring-1 ring-green-500/30' : ''}`}>
+                <Download className="w-5 h-5" /> Download Android APK
+              </a>
+              <p className={`text-xs text-center ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                Download & install the APK. Enable "Install from unknown sources" in phone Settings if needed.
+              </p>
+
+              {/* Alternative: PWA Install for Android (Chrome) */}
               <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-800' : 'bg-blue-50'}`}>
-                <p className={`text-sm font-bold mb-3 ${darkMode ? 'text-blue-400' : 'text-blue-700'}`}>For Android (Chrome):</p>
+                <p className={`text-sm font-bold mb-3 ${darkMode ? 'text-blue-400' : 'text-blue-700'}`}>Or use PWA (Chrome):</p>
                 <div className="space-y-2">
                   <div className="flex gap-3 items-start">
                     <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center flex-shrink-0 font-bold">1</span>
@@ -1285,59 +1312,94 @@ export default function HomePage() {
       {currentView === 'pending-approval' && isPowerUser && (
         <div className="space-y-4">
           <h2 className={`text-xl font-bold ${dm ? 'text-white' : ''}`}>Approve Attendance</h2>
-          {pendingAttendance.length === 0 ? (
-            <Card className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
-              <CardContent className="py-12 text-center"><CheckCircle2 className={`w-12 h-12 mx-auto mb-3 ${dm ? 'text-gray-600' : 'text-gray-300'}`} /><p className={dm ? 'text-gray-400' : 'text-gray-500'}>No pending approvals</p></CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {pendingAttendance.map(a => (
-                <Card key={a.id} className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
-                  <CardContent className="p-4">
-                    <div className="flex items-start gap-3">
-                      <Avatar className="w-10 h-10"><AvatarFallback className="bg-blue-100 text-blue-700 text-xs font-bold">{a.employee?.name.split(' ').map(n => n[0]).join('')}</AvatarFallback></Avatar>
-                      <div className="flex-1 min-w-0">
-                        <p className={`font-semibold text-sm ${dm ? 'text-white' : ''}`}>{a.employee?.name}</p>
-                        <p className={`text-xs ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{a.employee?.empId} · {a.employee?.department}</p>
-                        <p className={`text-xs ${dm ? 'text-gray-500' : 'text-gray-400'}`}>{formatDate(a.date)} · {formatTime(a.checkIn)} - {formatTime(a.checkOut)}</p>
-                        {a.isRegularised && <Badge className="bg-blue-100 text-blue-700 text-[10px] mt-1">Regularised: {a.regulariseReason}</Badge>}
-                      </div>
-                    </div>
 
-                    <div className="flex gap-2 mt-3">
-                      {a.checkInPhoto && <button onClick={() => setPhotoView({ photo: a.checkInPhoto!, label: 'Check In Photo' })} className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-medium ${dm ? 'bg-blue-900/30 text-blue-400' : 'bg-blue-50 text-blue-700'}`}><Eye className="w-3 h-3" /> Check In Photo</button>}
-                      {a.checkOutPhoto && <button onClick={() => setPhotoView({ photo: a.checkOutPhoto!, label: 'Check Out Photo' })} className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-medium ${dm ? 'bg-red-900/30 text-red-400' : 'bg-red-50 text-red-700'}`}><Eye className="w-3 h-3" /> Check Out Photo</button>}
-                    </div>
-
-                    {a.checkInAddr && a.checkInLat && a.checkInLng ? (
-                      <a href={`https://www.google.com/maps?q=${a.checkInLat},${a.checkInLng}`} target="_blank" rel="noopener noreferrer" className={`flex items-start gap-1.5 mt-2 text-xs ${dm ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-800'} underline`}>
-                        <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                        <span className="line-clamp-2">{a.checkInAddr}</span>
-                        <Globe className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                      </a>
-                    ) : a.checkInAddr ? (
-                      <p className={`text-xs mt-2 ${dm ? 'text-gray-500' : 'text-gray-400'}`}><MapPin className="w-3 h-3 inline mr-1" />{a.checkInAddr}</p>
-                    ) : null}
-                    {a.checkOutAddr && a.checkOutLat && a.checkOutLng ? (
-                      <a href={`https://www.google.com/maps?q=${a.checkOutLat},${a.checkOutLng}`} target="_blank" rel="noopener noreferrer" className={`flex items-start gap-1.5 text-xs ${dm ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-800'} underline`}>
-                        <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                        <span className="line-clamp-2">{a.checkOutAddr}</span>
-                        <Globe className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                      </a>
-                    ) : a.checkOutAddr ? (
-                      <p className={`text-xs ${dm ? 'text-gray-500' : 'text-gray-400'}`}><MapPin className="w-3 h-3 inline mr-1" />{a.checkOutAddr}</p>
-                    ) : null}
-                    {!a.checkInAddr && !a.checkOutAddr && <p className="text-xs mt-2 text-red-400"><AlertTriangle className="w-3 h-3 inline mr-1" />No location data</p>}
-
-                    <div className="flex gap-2 mt-3">
-                      <Button onClick={() => handleAttendanceAction(a.id, 'approve')} className="flex-1 h-10 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold"><CheckCircle2 className="w-4 h-4 mr-1" /> Approve</Button>
-                      <Button onClick={() => handleAttendanceAction(a.id, 'reject', 'Rejected by admin')} variant="outline" className="flex-1 h-10 rounded-xl text-sm font-semibold text-red-600 border-red-200 hover:bg-red-50"><XCircle className="w-4 h-4 mr-1" /> Reject</Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+          {/* Date + User Filters */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className={`text-xs mb-1 ${dm ? 'text-gray-300' : ''}`}>Filter by Date</Label>
+              <Input type="date" value={attFilterDate} onChange={e => setAttFilterDate(e.target.value)}
+                placeholder="All dates" className={`h-9 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} />
             </div>
+            <div>
+              <Label className={`text-xs mb-1 ${dm ? 'text-gray-300' : ''}`}>Filter by User</Label>
+              <Select value={attFilterUser} onValueChange={setAttFilterUser}>
+                <SelectTrigger className={`h-9 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}>
+                  <SelectValue placeholder="All users" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Users</SelectItem>
+                  {employees.map(e => <SelectItem key={e.id} value={e.id}>{e.name} ({e.empId})</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          {(attFilterDate || attFilterUser) && (
+            <button onClick={() => { setAttFilterDate(''); setAttFilterUser(''); }}
+              className={`text-xs flex items-center gap-1 ${dm ? 'text-blue-400' : 'text-blue-600'} hover:underline`}>
+              <XCircle className="w-3 h-3" /> Clear filters
+            </button>
           )}
+
+          {(() => {
+            const filtered = pendingAttendance.filter(a => {
+              if (attFilterDate && a.date !== attFilterDate) return false;
+              if (attFilterUser && attFilterUser !== 'all' && a.employeeId !== attFilterUser) return false;
+              return true;
+            });
+            return filtered.length === 0 ? (
+              <Card className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
+                <CardContent className="py-12 text-center"><CheckCircle2 className={`w-12 h-12 mx-auto mb-3 ${dm ? 'text-gray-600' : 'text-gray-300'}`} /><p className={dm ? 'text-gray-400' : 'text-gray-500'}>{attFilterDate || attFilterUser ? 'No matching records' : 'No pending approvals'}</p></CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {filtered.map(a => (
+                  <Card key={a.id} className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
+                    <CardContent className="p-4">
+                      <div className="flex items-start gap-3">
+                        <Avatar className="w-10 h-10"><AvatarFallback className="bg-blue-100 text-blue-700 text-xs font-bold">{a.employee?.name.split(' ').map(n => n[0]).join('')}</AvatarFallback></Avatar>
+                        <div className="flex-1 min-w-0">
+                          <p className={`font-semibold text-sm ${dm ? 'text-white' : ''}`}>{a.employee?.name}</p>
+                          <p className={`text-xs ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{a.employee?.empId} · {a.employee?.department}</p>
+                          <p className={`text-xs ${dm ? 'text-gray-500' : 'text-gray-400'}`}>{formatDate(a.date)} · {formatTime(a.checkIn)} - {formatTime(a.checkOut)}</p>
+                          {a.isRegularised && <Badge className="bg-blue-100 text-blue-700 text-[10px] mt-1">Regularised: {a.regulariseReason}</Badge>}
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2 mt-3">
+                        {a.checkInPhoto && <button onClick={() => setPhotoView({ photo: a.checkInPhoto!, label: 'Check In Photo' })} className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-medium ${dm ? 'bg-blue-900/30 text-blue-400' : 'bg-blue-50 text-blue-700'}`}><Eye className="w-3 h-3" /> Check In Photo</button>}
+                        {a.checkOutPhoto && <button onClick={() => setPhotoView({ photo: a.checkOutPhoto!, label: 'Check Out Photo' })} className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-medium ${dm ? 'bg-red-900/30 text-red-400' : 'bg-red-50 text-red-700'}`}><Eye className="w-3 h-3" /> Check Out Photo</button>}
+                      </div>
+
+                      {a.checkInAddr && a.checkInLat && a.checkInLng ? (
+                        <a href={`https://www.google.com/maps?q=${a.checkInLat},${a.checkInLng}`} target="_blank" rel="noopener noreferrer" className={`flex items-start gap-1.5 mt-2 text-xs ${dm ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-800'} underline`}>
+                          <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                          <span className="line-clamp-2">{a.checkInAddr}</span>
+                          <Globe className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                        </a>
+                      ) : a.checkInAddr ? (
+                        <p className={`text-xs mt-2 ${dm ? 'text-gray-500' : 'text-gray-400'}`}><MapPin className="w-3 h-3 inline mr-1" />{a.checkInAddr}</p>
+                      ) : null}
+                      {a.checkOutAddr && a.checkOutLat && a.checkOutLng ? (
+                        <a href={`https://www.google.com/maps?q=${a.checkOutLat},${a.checkOutLng}`} target="_blank" rel="noopener noreferrer" className={`flex items-start gap-1.5 text-xs ${dm ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-800'} underline`}>
+                          <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                          <span className="line-clamp-2">{a.checkOutAddr}</span>
+                          <Globe className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                        </a>
+                      ) : a.checkOutAddr ? (
+                        <p className={`text-xs ${dm ? 'text-gray-500' : 'text-gray-400'}`}><MapPin className="w-3 h-3 inline mr-1" />{a.checkOutAddr}</p>
+                      ) : null}
+                      {!a.checkInAddr && !a.checkOutAddr && <p className="text-xs mt-2 text-red-400"><AlertTriangle className="w-3 h-3 inline mr-1" />No location data</p>}
+
+                      <div className="flex gap-2 mt-3">
+                        <Button onClick={() => handleAttendanceAction(a.id, 'approve')} className="flex-1 h-10 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold"><CheckCircle2 className="w-4 h-4 mr-1" /> Approve</Button>
+                        <Button onClick={() => handleAttendanceAction(a.id, 'reject', 'Rejected by admin')} variant="outline" className="flex-1 h-10 rounded-xl text-sm font-semibold text-red-600 border-red-200 hover:bg-red-50"><XCircle className="w-4 h-4 mr-1" /> Reject</Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       )}
 
