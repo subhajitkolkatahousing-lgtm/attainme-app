@@ -50,15 +50,11 @@ export async function POST() {
     }
 
     // === Activate deactivated Super Admin if exists ===
-    const deactivatedAdmin = await db.employee.findFirst({
-      where: { empId: 'SUADMIN01', active: false }
-    });
-    if (deactivatedAdmin) {
-      await db.employee.update({
-        where: { id: deactivatedAdmin.id },
-        data: { active: true }
-      });
-      migrationResults.push('SUADMIN01 re-activated');
+    try {
+      await db.$executeRawUnsafe(`UPDATE "Employee" SET active = true WHERE "empId" = 'SUADMIN01';`);
+      migrationResults.push('SUADMIN01 force-activated (if exists)');
+    } catch (e: any) {
+      migrationResults.push(`SUADMIN01 activate: ${e.message}`);
     }
 
     // === Seed Logic ===
