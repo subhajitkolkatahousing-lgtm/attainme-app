@@ -1137,8 +1137,8 @@ export default function HomePage() {
   const roleLabel = isSuperAdmin ? 'Super Admin' : isAdmin ? 'Admin' : isManager ? 'Manager' : isPresales ? 'Pre-Sales' : isSales ? 'Sales' : 'Employee';
   const panelLabel = isSuperAdmin ? 'Super Admin Panel' : isAdmin ? 'Admin Panel' : isManager ? 'Manager Panel' : 'Employee Panel';
 
-  // Super Admin + Admin: full access
-  const superAdminSidebarItems = [
+  // Power Users (Super Admin + Admin + Manager): SAME full access
+  const powerSidebarItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'pending-approval', label: 'Approve Attendance', icon: CheckCircle2 },
     { id: 'attendance-history-admin', label: 'Attendance History', icon: Clock },
@@ -1148,18 +1148,6 @@ export default function HomePage() {
     { id: 'pay-slip-admin', label: 'Pay Slips', icon: Receipt },
     { id: 'leave-mgmt', label: 'Leave Management', icon: CalendarDays },
     { id: 'emp-details', label: 'Employee Details', icon: BadgeCheck },
-    { id: 'reimbursements-admin', label: 'Expense Claims', icon: IndianRupee },
-  ];
-
-  const adminSidebarItems = superAdminSidebarItems; // same access
-
-  // Manager: restricted access
-  const managerSidebarItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: Home },
-    { id: 'pending-approval', label: 'Approve Attendance', icon: CheckCircle2 },
-    { id: 'attendance-history-admin', label: 'Attendance History', icon: Clock },
-    { id: 'manual-attendance', label: 'Manual Attendance', icon: FileText },
-    { id: 'leave-mgmt', label: 'Leave Management', icon: CalendarDays },
     { id: 'reimbursements-admin', label: 'Expense Claims', icon: IndianRupee },
   ];
 
@@ -1173,22 +1161,12 @@ export default function HomePage() {
     { id: 'my-details', label: 'My Details', icon: Users },
   ];
 
-  // Bottom tabs (mobile)
-  const superAdminTabs = [
+  // Bottom tabs (mobile) - same for all power users
+  const powerTabs = [
     { id: 'dashboard', label: 'Home', icon: Home },
     { id: 'pending-approval', label: 'Approve', icon: CheckCircle2 },
     { id: 'attendance-history-admin', label: 'History', icon: Clock },
     { id: 'employees', label: 'Staff', icon: Users },
-    { id: 'leave-mgmt', label: 'Leave', icon: CalendarDays },
-    { id: 'emp-details', label: 'Details', icon: BadgeCheck },
-  ];
-
-  const adminTabs = superAdminTabs;
-
-  const managerTabs = [
-    { id: 'dashboard', label: 'Home', icon: Home },
-    { id: 'pending-approval', label: 'Approve', icon: CheckCircle2 },
-    { id: 'attendance-history-admin', label: 'History', icon: Clock },
     { id: 'leave-mgmt', label: 'Leave', icon: CalendarDays },
     { id: 'reimbursements-admin', label: 'Expenses', icon: IndianRupee },
   ];
@@ -1204,9 +1182,7 @@ export default function HomePage() {
 
   // Select sidebar and tabs based on role
   let sidebarItems, tabs;
-  if (isSuperAdmin) { sidebarItems = superAdminSidebarItems; tabs = superAdminTabs; }
-  else if (isAdmin) { sidebarItems = adminSidebarItems; tabs = adminTabs; }
-  else if (isManager) { sidebarItems = managerSidebarItems; tabs = managerTabs; }
+  if (isPowerUser) { sidebarItems = powerSidebarItems; tabs = powerTabs; }
   else { sidebarItems = empSidebarItems; tabs = empTabs; }
 
   const renderSidebar = () => (
@@ -1429,60 +1405,64 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ===== ADMIN/MANAGER: ATTENDANCE HISTORY ===== */}
+      {/* ===== POWER USERS: ATTENDANCE HISTORY ===== */}
       {currentView === 'attendance-history-admin' && isPowerUser && (
         <div className="space-y-4">
-          <h2 className={`text-xl font-bold ${dm ? 'text-white' : ''}`}>Attendance History</h2>
+          <div className="flex items-center justify-between">
+            <h2 className={`text-xl font-bold ${dm ? 'text-white' : ''}`}>Attendance History</h2>
+            <Badge className={`${dm ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-600'} text-xs`}>{allAttendance.length} records</Badge>
+          </div>
 
           {/* Filters */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label className={`text-xs mb-1 ${dm ? 'text-gray-300' : ''}`}>Filter by Date</Label>
-              <Input type="date" value={attHistFilterDate} onChange={e => setAttHistFilterDate(e.target.value)}
-                className={`h-9 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} />
-            </div>
-            <div>
-              <Label className={`text-xs mb-1 ${dm ? 'text-gray-300' : ''}`}>Filter by Employee</Label>
-              <Select value={attHistFilterUser} onValueChange={setAttHistFilterUser}>
-                <SelectTrigger className={`h-9 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}>
-                  <SelectValue placeholder="All employees" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Employees</SelectItem>
-                  {employees.map(e => <SelectItem key={e.id} value={e.id}>{e.name} ({e.empId})</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label className={`text-xs mb-1 ${dm ? 'text-gray-300' : ''}`}>Filter by Status</Label>
-              <Select value={attHistFilterStatus} onValueChange={setAttHistFilterStatus}>
-                <SelectTrigger className={`h-9 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}>
-                  <SelectValue placeholder="All statuses" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="approved">Approved</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="rejected">Rejected</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-end gap-2">
-              <Button onClick={loadFilteredAttendance} disabled={attHistLoading} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl h-9 flex-1 text-sm">
-                {attHistLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4 mr-1" />}
-                Search
-              </Button>
-              {(attHistFilterDate || (attHistFilterUser && attHistFilterUser !== 'all') || (attHistFilterStatus && attHistFilterStatus !== 'all')) && (
-                <Button onClick={() => { setAttHistFilterDate(''); setAttHistFilterUser('all'); setAttHistFilterStatus('all'); loadFilteredAttendance(); }}
-                  variant="outline" className={`rounded-xl h-9 text-sm ${dm ? 'border-gray-700 text-gray-300 hover:bg-gray-800' : ''}`}>
-                  <XCircle className="w-4 h-4 mr-1" /> Clear
+          <Card className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
+            <CardContent className="p-3 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <Label className={`text-xs mb-1 ${dm ? 'text-gray-300' : ''}`}>Filter by Date</Label>
+                  <Input type="date" value={attHistFilterDate} onChange={e => setAttHistFilterDate(e.target.value)}
+                    className={`h-9 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} />
+                </div>
+                <div>
+                  <Label className={`text-xs mb-1 ${dm ? 'text-gray-300' : ''}`}>Filter by Employee</Label>
+                  <Select value={attHistFilterUser} onValueChange={setAttHistFilterUser}>
+                    <SelectTrigger className={`h-9 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}>
+                      <SelectValue placeholder="All employees" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Employees</SelectItem>
+                      {employees.map(e => <SelectItem key={e.id} value={e.id}>{e.name} ({e.empId})</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className={`text-xs mb-1 ${dm ? 'text-gray-300' : ''}`}>Filter by Status</Label>
+                  <Select value={attHistFilterStatus} onValueChange={setAttHistFilterStatus}>
+                    <SelectTrigger className={`h-9 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}>
+                      <SelectValue placeholder="All statuses" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Statuses</SelectItem>
+                      <SelectItem value="approved">Approved</SelectItem>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="rejected">Rejected</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button onClick={loadFilteredAttendance} disabled={attHistLoading} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl h-9 flex-1 text-sm">
+                  {attHistLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4 mr-1" />}
+                  Search
                 </Button>
-              )}
-            </div>
-          </div>
+                {(attHistFilterDate || (attHistFilterUser && attHistFilterUser !== 'all') || (attHistFilterStatus && attHistFilterStatus !== 'all')) && (
+                  <Button onClick={() => { setAttHistFilterDate(''); setAttHistFilterUser('all'); setAttHistFilterStatus('all'); loadFilteredAttendance(); }}
+                    variant="outline" className={`rounded-xl h-9 text-sm ${dm ? 'border-gray-700 text-gray-300 hover:bg-gray-800' : ''}`}>
+                    <XCircle className="w-4 h-4 mr-1" /> Clear
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Summary Stats */}
           {(() => {
@@ -1559,8 +1539,8 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ===== ADMIN: EMPLOYEES ===== */}
-      {currentView === 'employees' && isAdmin && (
+      {/* ===== POWER USERS: EMPLOYEES ===== */}
+      {currentView === 'employees' && isPowerUser && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className={`text-xl font-bold ${dm ? 'text-white' : ''}`}>Staff Management</h2>
@@ -1739,8 +1719,8 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ===== ADMIN: PAYROLL ===== */}
-      {currentView === 'payroll-admin' && isAdmin && (
+      {/* ===== POWER USERS: PAYROLL ===== */}
+      {currentView === 'payroll-admin' && isPowerUser && (
         <div className="space-y-4">
           <h2 className={`text-xl font-bold ${dm ? 'text-white' : ''}`}>Payroll Management</h2>
           <Card className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
@@ -1779,8 +1759,8 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ===== ADMIN: PAY SLIPS ===== */}
-      {currentView === 'pay-slip-admin' && isAdmin && (
+      {/* ===== POWER USERS: PAY SLIPS ===== */}
+      {currentView === 'pay-slip-admin' && isPowerUser && (
         <div className="space-y-4">
           <h2 className={`text-xl font-bold ${dm ? 'text-white' : ''}`}>Pay Slips</h2>
           {payrollRecords.length === 0 ? (
@@ -1941,8 +1921,8 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ===== ADMIN: EMPLOYEE DETAILS ===== */}
-      {currentView === 'emp-details' && isAdmin && (
+      {/* ===== POWER USERS: EMPLOYEE DETAILS ===== */}
+      {currentView === 'emp-details' && isPowerUser && (
         <div className="space-y-4">
           <h2 className={`text-xl font-bold ${dm ? 'text-white' : ''}`}>Employee Details</h2>
           {employees.filter(e => e.role === 'employee').length === 0 ? (
@@ -2451,10 +2431,13 @@ export default function HomePage() {
       {/* Desktop Sidebar */}
       {renderSidebar()}
 
-      {/* Mobile Header */}
+      {/* Mobile Header with Hamburger Menu */}
       <div className="lg:hidden flex-shrink-0">
         <header className={`flex items-center justify-between px-4 py-3 shadow-md ${dm ? 'bg-gray-900' : 'bg-gradient-to-r from-blue-600 to-indigo-600'} text-white`}>
           <div className="flex items-center gap-3">
+            <button onClick={() => setSidebarOpen(true)} className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/15 hover:bg-white/25 transition-colors">
+              <Menu className="w-5 h-5 text-white" />
+            </button>
             <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center"><BookOpen className="w-5 h-5 text-white" /></div>
             <div>
               <h1 className="font-bold text-lg leading-tight">Attain Me</h1>
@@ -2470,6 +2453,59 @@ export default function HomePage() {
           </div>
         </header>
       </div>
+
+      {/* Mobile Slide-out Menu Overlay */}
+      {sidebarOpen && (
+        <div className="lg:hidden fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
+          <div className={`absolute left-0 top-0 bottom-0 w-72 ${dm ? 'bg-gray-900' : 'bg-white'} shadow-2xl transform transition-transform duration-300`}>
+            <div className={`p-4 flex items-center justify-between border-b ${dm ? 'border-gray-800' : 'border-gray-200'}`}>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
+                  <BookOpen className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h1 className="font-bold text-base leading-tight">Attain Me</h1>
+                  <p className={`text-[10px] uppercase tracking-wider ${dm ? 'text-gray-500' : 'text-gray-400'}`}>{panelLabel}</p>
+                </div>
+              </div>
+              <button onClick={() => setSidebarOpen(false)} className={`w-8 h-8 flex items-center justify-center rounded-xl ${dm ? 'bg-gray-800 text-gray-400 hover:bg-gray-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'} transition-all`}>
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <nav className="flex-1 overflow-y-auto p-3 space-y-1">
+              {sidebarItems.map(item => {
+                const Icon = item.icon;
+                const isActive = currentView === item.id;
+                return (
+                  <button key={item.id} onClick={() => { navigateTo(item.id); setSidebarOpen(false); }}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                      isActive
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : dm
+                          ? 'text-gray-400 hover:text-white hover:bg-gray-800'
+                          : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                    }`}>
+                    <Icon className="w-5 h-5" />
+                    {item.label}
+                  </button>
+                );
+              })}
+            </nav>
+            <div className={`p-4 border-t ${dm ? 'border-gray-800' : 'border-gray-200'}`}>
+              <div className="flex items-center gap-2">
+                <Avatar className="w-8 h-8 border-2 border-blue-200">
+                  <AvatarFallback className="bg-blue-100 text-blue-700 text-xs font-bold">{user.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-semibold truncate ${dm ? 'text-white' : ''}`}>{user.name}</p>
+                  <p className={`text-[10px] ${dm ? 'text-gray-500' : 'text-gray-400'}`}>{user.empId} · {roleLabel}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Content Area */}
       <main className={`flex-1 pb-24 lg:pb-4 ${dm ? 'bg-gray-950' : 'bg-gray-50'}`}>
