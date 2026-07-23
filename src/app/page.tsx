@@ -125,6 +125,12 @@ export default function HomePage() {
   const [attFilterDate, setAttFilterDate] = useState('');
   const [attFilterUser, setAttFilterUser] = useState('');
 
+  // Attendance History Filters (for Manager/Admin/Super Admin - full history view)
+  const [attHistFilterDate, setAttHistFilterDate] = useState('');
+  const [attHistFilterUser, setAttHistFilterUser] = useState('');
+  const [attHistFilterStatus, setAttHistFilterStatus] = useState('');
+  const [attHistLoading, setAttHistLoading] = useState(false);
+
   // Camera
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraLoading, setCameraLoading] = useState(false);
@@ -458,6 +464,22 @@ export default function HomePage() {
         const r4 = await fetch('/api/attendance/history?employeeId=all'); if (r4.ok) setAllAttendance(await r4.json());
       }
     } catch {}
+  };
+
+  // ===== ATTENDANCE HISTORY FILTER (for Admin/Manager/Super Admin) =====
+  const loadFilteredAttendance = async () => {
+    setAttHistLoading(true);
+    try {
+      const params = new URLSearchParams({ employeeId: attHistFilterUser || 'all' });
+      if (attHistFilterDate) params.set('date', attHistFilterDate);
+      if (attHistFilterStatus) params.set('status', attHistFilterStatus);
+      const res = await fetch(`/api/attendance/history?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setAllAttendance(data);
+      }
+    } catch {}
+    setAttHistLoading(false);
   };
 
   // ===== REGULARISE =====
@@ -1119,6 +1141,7 @@ export default function HomePage() {
   const superAdminSidebarItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'pending-approval', label: 'Approve Attendance', icon: CheckCircle2 },
+    { id: 'attendance-history-admin', label: 'Attendance History', icon: Clock },
     { id: 'employees', label: 'Staff Management', icon: Users },
     { id: 'manual-attendance', label: 'Manual Attendance', icon: FileText },
     { id: 'payroll-admin', label: 'Payroll', icon: Wallet },
@@ -1134,6 +1157,7 @@ export default function HomePage() {
   const managerSidebarItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'pending-approval', label: 'Approve Attendance', icon: CheckCircle2 },
+    { id: 'attendance-history-admin', label: 'Attendance History', icon: Clock },
     { id: 'manual-attendance', label: 'Manual Attendance', icon: FileText },
     { id: 'leave-mgmt', label: 'Leave Management', icon: CalendarDays },
     { id: 'reimbursements-admin', label: 'Expense Claims', icon: IndianRupee },
@@ -1153,6 +1177,7 @@ export default function HomePage() {
   const superAdminTabs = [
     { id: 'dashboard', label: 'Home', icon: Home },
     { id: 'pending-approval', label: 'Approve', icon: CheckCircle2 },
+    { id: 'attendance-history-admin', label: 'History', icon: Clock },
     { id: 'employees', label: 'Staff', icon: Users },
     { id: 'leave-mgmt', label: 'Leave', icon: CalendarDays },
     { id: 'emp-details', label: 'Details', icon: BadgeCheck },
@@ -1163,6 +1188,7 @@ export default function HomePage() {
   const managerTabs = [
     { id: 'dashboard', label: 'Home', icon: Home },
     { id: 'pending-approval', label: 'Approve', icon: CheckCircle2 },
+    { id: 'attendance-history-admin', label: 'History', icon: Clock },
     { id: 'leave-mgmt', label: 'Leave', icon: CalendarDays },
     { id: 'reimbursements-admin', label: 'Expenses', icon: IndianRupee },
   ];
@@ -1400,6 +1426,136 @@ export default function HomePage() {
               </div>
             );
           })()}
+        </div>
+      )}
+
+      {/* ===== ADMIN/MANAGER: ATTENDANCE HISTORY ===== */}
+      {currentView === 'attendance-history-admin' && isPowerUser && (
+        <div className="space-y-4">
+          <h2 className={`text-xl font-bold ${dm ? 'text-white' : ''}`}>Attendance History</h2>
+
+          {/* Filters */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className={`text-xs mb-1 ${dm ? 'text-gray-300' : ''}`}>Filter by Date</Label>
+              <Input type="date" value={attHistFilterDate} onChange={e => setAttHistFilterDate(e.target.value)}
+                className={`h-9 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`} />
+            </div>
+            <div>
+              <Label className={`text-xs mb-1 ${dm ? 'text-gray-300' : ''}`}>Filter by Employee</Label>
+              <Select value={attHistFilterUser} onValueChange={setAttHistFilterUser}>
+                <SelectTrigger className={`h-9 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}>
+                  <SelectValue placeholder="All employees" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Employees</SelectItem>
+                  {employees.map(e => <SelectItem key={e.id} value={e.id}>{e.name} ({e.empId})</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className={`text-xs mb-1 ${dm ? 'text-gray-300' : ''}`}>Filter by Status</Label>
+              <Select value={attHistFilterStatus} onValueChange={setAttHistFilterStatus}>
+                <SelectTrigger className={`h-9 rounded-xl ${dm ? 'bg-gray-800 border-gray-700 text-white' : ''}`}>
+                  <SelectValue placeholder="All statuses" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="rejected">Rejected</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-end gap-2">
+              <Button onClick={loadFilteredAttendance} disabled={attHistLoading} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl h-9 flex-1 text-sm">
+                {attHistLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4 mr-1" />}
+                Search
+              </Button>
+              {(attHistFilterDate || attHistFilterUser || attHistFilterStatus) && (
+                <Button onClick={() => { setAttHistFilterDate(''); setAttHistFilterUser(''); setAttHistFilterStatus(''); loadFilteredAttendance(); }}
+                  variant="outline" className={`rounded-xl h-9 text-sm ${dm ? 'border-gray-700 text-gray-300 hover:bg-gray-800' : ''}`}>
+                  <XCircle className="w-4 h-4 mr-1" /> Clear
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Summary Stats */}
+          {(() => {
+            const approved = allAttendance.filter(a => a.status === 'approved').length;
+            const pending = allAttendance.filter(a => a.status === 'pending').length;
+            const rejected = allAttendance.filter(a => a.status === 'rejected').length;
+            return (
+              <div className="grid grid-cols-3 gap-3">
+                <div className={`p-3 rounded-2xl text-center ${dm ? 'bg-blue-900/30' : 'bg-blue-50'}`}>
+                  <p className={`text-xs font-medium ${dm ? 'text-blue-400' : 'text-blue-600'}`}>Approved</p>
+                  <p className={`text-lg font-bold ${dm ? 'text-blue-300' : 'text-blue-700'}`}>{approved}</p>
+                </div>
+                <div className={`p-3 rounded-2xl text-center ${dm ? 'bg-amber-900/30' : 'bg-amber-50'}`}>
+                  <p className={`text-xs font-medium ${dm ? 'text-amber-400' : 'text-amber-600'}`}>Pending</p>
+                  <p className={`text-lg font-bold ${dm ? 'text-amber-300' : 'text-amber-700'}`}>{pending}</p>
+                </div>
+                <div className={`p-3 rounded-2xl text-center ${dm ? 'bg-red-900/30' : 'bg-red-50'}`}>
+                  <p className={`text-xs font-medium ${dm ? 'text-red-400' : 'text-red-600'}`}>Rejected</p>
+                  <p className={`text-lg font-bold ${dm ? 'text-red-300' : 'text-red-700'}`}>{rejected}</p>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Records */}
+          {allAttendance.length === 0 ? (
+            <Card className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
+              <CardContent className="py-12 text-center">
+                <Clock className={`w-12 h-12 mx-auto mb-3 ${dm ? 'text-gray-600' : 'text-gray-300'}`} />
+                <p className={dm ? 'text-gray-400' : 'text-gray-500'}>No attendance records found</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {allAttendance.map(a => (
+                <Card key={a.id} className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-3">
+                      <Avatar className="w-10 h-10">
+                        <AvatarFallback className="bg-blue-100 text-blue-700 text-xs font-bold">
+                          {a.employee?.name?.split(' ').map(n => n[0]).join('') || '?'}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <p className={`font-semibold text-sm ${dm ? 'text-white' : ''}`}>{a.employee?.name || 'Unknown'}</p>
+                          <Badge className={`${a.status === 'approved' ? 'bg-blue-100 text-blue-700' : a.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'} text-[10px]`}>
+                            {a.status}
+                          </Badge>
+                        </div>
+                        <p className={`text-xs ${dm ? 'text-gray-400' : 'text-gray-500'}`}>
+                          {a.employee?.empId} · {a.employee?.department}
+                        </p>
+                        <p className={`text-xs ${dm ? 'text-gray-500' : 'text-gray-400'}`}>
+                          {formatDate(a.date)} · {formatTime(a.checkIn)} - {formatTime(a.checkOut)}
+                          {a.workHours ? ` (${a.workHours.toFixed(1)}h)` : ''}
+                        </p>
+                        {a.isRegularised && <Badge className="bg-blue-100 text-blue-700 text-[10px] mt-1">Regularised: {a.regulariseReason}</Badge>}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 mt-3">
+                      {a.checkInPhoto && <button onClick={() => setPhotoView({ photo: a.checkInPhoto!, label: 'Check In Photo' })} className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-medium ${dm ? 'bg-blue-900/30 text-blue-400' : 'bg-blue-50 text-blue-700'}`}><Eye className="w-3 h-3" /> In</button>}
+                      {a.checkOutPhoto && <button onClick={() => setPhotoView({ photo: a.checkOutPhoto!, label: 'Check Out Photo' })} className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-medium ${dm ? 'bg-red-900/30 text-red-400' : 'bg-red-50 text-red-700'}`}><Eye className="w-3 h-3" /> Out</button>}
+                    </div>
+
+                    {a.checkInAddr && <p className={`text-xs mt-1 ${dm ? 'text-gray-500' : 'text-gray-400'}`}><MapPin className="w-3 h-3 inline mr-1" />{a.checkInAddr}</p>}
+                    {a.checkOutAddr && <p className={`text-xs ${dm ? 'text-gray-500' : 'text-gray-400'}`}><MapPin className="w-3 h-3 inline mr-1" />{a.checkOutAddr}</p>}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
