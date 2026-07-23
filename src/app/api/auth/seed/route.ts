@@ -49,6 +49,18 @@ export async function POST() {
       }
     }
 
+    // === Activate deactivated Super Admin if exists ===
+    const deactivatedAdmin = await db.employee.findFirst({
+      where: { empId: 'SUADMIN01', active: false }
+    });
+    if (deactivatedAdmin) {
+      await db.employee.update({
+        where: { id: deactivatedAdmin.id },
+        data: { active: true }
+      });
+      migrationResults.push('SUADMIN01 re-activated');
+    }
+
     // === Seed Logic ===
     // Check if already seeded
     const existing = await db.employee.findFirst({
