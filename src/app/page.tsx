@@ -123,12 +123,12 @@ export default function HomePage() {
 
   // Attendance Filters (for Manager/Admin/Super Admin)
   const [attFilterDate, setAttFilterDate] = useState('');
-  const [attFilterUser, setAttFilterUser] = useState('');
+  const [attFilterUser, setAttFilterUser] = useState('all');
 
   // Attendance History Filters (for Manager/Admin/Super Admin - full history view)
   const [attHistFilterDate, setAttHistFilterDate] = useState('');
-  const [attHistFilterUser, setAttHistFilterUser] = useState('');
-  const [attHistFilterStatus, setAttHistFilterStatus] = useState('');
+  const [attHistFilterUser, setAttHistFilterUser] = useState('all');
+  const [attHistFilterStatus, setAttHistFilterStatus] = useState('all');
   const [attHistLoading, setAttHistLoading] = useState(false);
 
   // Camera
@@ -472,7 +472,7 @@ export default function HomePage() {
     try {
       const params = new URLSearchParams({ employeeId: attHistFilterUser || 'all' });
       if (attHistFilterDate) params.set('date', attHistFilterDate);
-      if (attHistFilterStatus) params.set('status', attHistFilterStatus);
+      if (attHistFilterStatus && attHistFilterStatus !== 'all') params.set('status', attHistFilterStatus);
       const res = await fetch(`/api/attendance/history?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
@@ -1359,8 +1359,8 @@ export default function HomePage() {
               </Select>
             </div>
           </div>
-          {(attFilterDate || attFilterUser) && (
-            <button onClick={() => { setAttFilterDate(''); setAttFilterUser(''); }}
+          {(attFilterDate || (attFilterUser && attFilterUser !== 'all')) && (
+            <button onClick={() => { setAttFilterDate(''); setAttFilterUser('all'); }}
               className={`text-xs flex items-center gap-1 ${dm ? 'text-blue-400' : 'text-blue-600'} hover:underline`}>
               <XCircle className="w-3 h-3" /> Clear filters
             </button>
@@ -1374,7 +1374,7 @@ export default function HomePage() {
             });
             return filtered.length === 0 ? (
               <Card className={`rounded-2xl border-0 shadow-sm ${dm ? 'bg-gray-900' : ''}`}>
-                <CardContent className="py-12 text-center"><CheckCircle2 className={`w-12 h-12 mx-auto mb-3 ${dm ? 'text-gray-600' : 'text-gray-300'}`} /><p className={dm ? 'text-gray-400' : 'text-gray-500'}>{attFilterDate || attFilterUser ? 'No matching records' : 'No pending approvals'}</p></CardContent>
+                <CardContent className="py-12 text-center"><CheckCircle2 className={`w-12 h-12 mx-auto mb-3 ${dm ? 'text-gray-600' : 'text-gray-300'}`} /><p className={dm ? 'text-gray-400' : 'text-gray-500'}>{attFilterDate || (attFilterUser && attFilterUser !== 'all') ? 'No matching records' : 'No pending approvals'}</p></CardContent>
               </Card>
             ) : (
               <div className="space-y-3">
@@ -1475,8 +1475,8 @@ export default function HomePage() {
                 {attHistLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4 mr-1" />}
                 Search
               </Button>
-              {(attHistFilterDate || attHistFilterUser || attHistFilterStatus) && (
-                <Button onClick={() => { setAttHistFilterDate(''); setAttHistFilterUser(''); setAttHistFilterStatus(''); loadFilteredAttendance(); }}
+              {(attHistFilterDate || (attHistFilterUser && attHistFilterUser !== 'all') || (attHistFilterStatus && attHistFilterStatus !== 'all')) && (
+                <Button onClick={() => { setAttHistFilterDate(''); setAttHistFilterUser('all'); setAttHistFilterStatus('all'); loadFilteredAttendance(); }}
                   variant="outline" className={`rounded-xl h-9 text-sm ${dm ? 'border-gray-700 text-gray-300 hover:bg-gray-800' : ''}`}>
                   <XCircle className="w-4 h-4 mr-1" /> Clear
                 </Button>
