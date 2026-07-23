@@ -53,3 +53,14 @@ prompt
 server.log
 # Skills directory
 /skills/
+
+# Build tools - too large for GitHub
+jdk/
+android-sdk/
+android-app/
+scripts/
+tool-results/
+*.apk
+*.keystore
+db/
+*.db
